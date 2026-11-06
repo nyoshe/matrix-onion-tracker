@@ -39,11 +39,11 @@ The pin map targets the **ELEGOO ESP-WROOM-32** dev board, which has the 38-pin 
   34    ● │ ◄ ENC DT    │ ●  21    ◄ C
   35    ● │ ◄ ENC CLK   │ ●  19    ◄ D
   32    ● │ ◄ R1        │ ●  18    ◄ CLK
-  33    ● │ ◄ G1        │ ●  5     ◄ LAT
-  25    ● │ ◄ B1        │ ●  17    ◄ OE
+  33    ● │ ◄ B1        │ ●  5     ◄ LAT
+  25    ● │ ◄ G1        │ ●  17    ◄ OE
   26    ● │ ◄ R2        │ ●  16
-  27    ● │ ◄ G2        │ ●  4
-  14    ● │ ◄ B2        │ ●  0
+  27    ● │ ◄ B2        │ ●  4
+  14    ● │ ◄ G2        │ ●  0
   12    ● │             │ ●  2
   GND   ● │             │ ●  15
   13    ● │             │ ●  SD1
@@ -56,10 +56,10 @@ The pin map targets the **ELEGOO ESP-WROOM-32** dev board, which has the 38-pin 
 
 | HUB75 (2×8 ribbon) | ESP32 | | HUB75 | ESP32 |
 |---|---|---|---|---|
-| R1 | 32 | | G1 | 33 |
-| B1 | 25 | | GND | GND (top of right header) |
-| R2 | 26 | | G2 | 27 |
-| B2 | 14 | | E | — (not used at 32 rows) |
+| R1 | 32 | | G1 | 25 |
+| B1 | 33 | | GND | GND (top of right header) |
+| R2 | 26 | | G2 | 14 |
+| B2 | 27 | | E | — (not used at 32 rows) |
 | A | 23 | | B | 22 |
 | C | 21 | | D | 19 |
 | CLK | 18 | | LAT | 5 |
@@ -177,6 +177,7 @@ The screen is cleared before `draw()` and shown afterwards. Draw the whole pictu
 
 - **Panel stays dark or shows garbage:** some Waveshare panels use an FM6126A driver. Uncomment `cfg.driver = HUB75_I2S_CFG::FM6126A;` in `src/core/Matrix.cpp`.
 - **Pixels shimmer or show the wrong colour in fixed spots:** `cfg.clkphase` in `src/core/Matrix.cpp` is set to `false` because this panel misread R/B bits on the default edge (white showed as green). If a different panel misbehaves, try setting it back to `true`. The clock is already at the library's minimum of 8 MHz.
+- **One colour consistently renders as another (not just in fixed spots):** that's a wiring crossover, not a timing issue -- swap the affected pins' values in `Pins` (`src/config.h`). `G1`/`B1` and `G2`/`B2` are already swapped from the panel's physical 33/25 and 27/14 order here, since green was rendering as blue on this board.
 - **Brightness:** change `PANEL_BRIGHTNESS` in `src/config.h` (startup default) or use the menu's **Brightness** item at runtime.
 - **Encoder turns the wrong way:** swap `ENCODER_CLK`/`ENCODER_DT` in `src/config.h`.
 - **Encoder skips or double-counts steps:** `src/core/Encoder.cpp` decodes CLK/DT with a quadrature state machine (interrupts on both pins, no time-based debounce -- skipping an edge to "debounce" it would desync the table from the pins' real state). If it still misbehaves, it's more likely a wiring/contact issue than a timing one.

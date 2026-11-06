@@ -16,12 +16,14 @@ constexpr uint8_t PANEL_BRIGHTNESS = 96;  // 0-255
 // led-matrix-audio-visualizer, minus the sound detector.
 namespace Pins {
 // HUB75 colour lines: left header, six pins in a row (32 33 25 26 27 14).
+// G/B swapped from the physical 33/25 and 27/14 pin order: green was
+// rendering as blue, meaning the G/B wires are crossed on this board.
 constexpr int8_t R1 = 32;
-constexpr int8_t G1 = 33;
-constexpr int8_t B1 = 25;
+constexpr int8_t G1 = 25;
+constexpr int8_t B1 = 33;
 constexpr int8_t R2 = 26;
-constexpr int8_t G2 = 27;
-constexpr int8_t B2 = 14;
+constexpr int8_t G2 = 14;
+constexpr int8_t B2 = 27;
 // HUB75 address/control: right header, a run from 23 down to 17
 // (skipping TX/RX and the GND pin, which the matrix GND can use).
 constexpr int8_t A   = 23;
