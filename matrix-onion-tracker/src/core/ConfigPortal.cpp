@@ -1,5 +1,6 @@
 #include "ConfigPortal.h"
 
+#include <DNSServer.h>
 #include <WebServer.h>
 
 #include "Net.h"
@@ -8,6 +9,19 @@
 namespace {
 
 WebServer server(80);
+DNSServer dnsServer;
+bool dnsRunning = false;
+
+// Phones/laptops probe a known URL to tell whether a network has real
+// internet; any answer other than the expected one (a plain 204, or a
+// specific fixed page) makes them treat it as a captive portal and pop a
+// sign-in browser straight to whatever we redirect to here. Combined with
+// the DNS server resolving every hostname to us, that covers both the
+// probe-by-domain-name and probe-by-fixed-IP cases.
+void handleNotFound() {
+  server.sendHeader("Location", "http://" + server.client().localIP().toString() + "/");
+  server.send(302, "text/plain", "");
+}
 
 void appendEscaped(String& out, const char* s) {
   for (const char* p = s; *p; p++) {
@@ -83,7 +97,22 @@ void ConfigPortal::begin() {
   server.on("/", HTTP_GET, handleRoot);
   server.on("/add", HTTP_POST, handleAdd);
   server.on("/delete", HTTP_POST, handleDelete);
+  server.onNotFound(handleNotFound);
   server.begin();
 }
 
-void ConfigPortal::poll() { server.handleClient(); }
+void ConfigPortal::poll() {
+  server.handleClient();
+
+  // DNS hijacking only makes sense while the AP is what phones are actually
+  // using; start/stop it on the AP's own transitions rather than once at
+  // boot, so it always resolves to whatever the AP's current IP is.
+  bool apActive = Net::isApActive();
+  if (apActive && !dnsRunning) {
+    dnsServer.start();  // defaults: port 53, catch-all domain, resolves to the AP's IP
+    dnsRunning = true;
+  } else if (!apActive && dnsRunning) {
+    dnsServer.stop();
+    dnsRunning = false;
+  }
+}

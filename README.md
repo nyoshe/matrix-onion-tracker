@@ -103,6 +103,8 @@ At boot, each saved network (`src/core/NetworkStore`) is tried in turn (`WIFI_PE
 
 The panel's AP-mode screen is drawn in `Net::draw()` (`src/core/Net.cpp`); if `WIFI_AP_SSID` is long, it can run past the panel's 64px width at the current font, since it's static text rather than a scrolling ticker.
 
+While the AP is active, `ConfigPortal` also runs a captive-portal DNS server (resolves every hostname to itself) and redirects every unmatched HTTP path to the config page. That's what makes phones and laptops pop a "sign in to network" prompt straight to it on their own, the same way hotel/airport WiFi does, instead of silently refusing to use a network with no real internet. It only covers plain HTTP connectivity checks -- a device whose check happens to go over HTTPS won't be fooled, so the prompt isn't guaranteed on every OS/version, but joining the AP and opening a browser to `192.168.4.1` always works as the fallback.
+
 The page lists saved networks with a **Delete** button each, and a form to add one by SSID and password. Adding a network saves it and immediately tries connecting to it, while keeping the access point up (dual AP+STA mode) so the page stays reachable if it fails. On success, the access point drops and the page is reachable at the new network's IP instead (printed over serial; the panel doesn't show the STA IP once connected).
 
 This same page is meant to grow into the place for other settings later (tracked currencies/sites), not just WiFi -- see `src/core/ConfigPortal.cpp`.
@@ -124,7 +126,7 @@ matrix-onion-tracker/
     │   ├── Menu.{h,cpp}                   on-screen menu state machine + drawing
     │   ├── NetworkStore.{h,cpp}           persisted list of saved WiFi networks (NVS)
     │   ├── Net.{h,cpp}                    tries saved networks, falls back to an AP
-    │   └── ConfigPortal.{h,cpp}           web page to add/remove saved networks
+    │   └── ConfigPortal.{h,cpp}           web page to add/remove networks + captive-portal DNS/redirect
     └── screens/                           one file per screen
         ├── CryptoTicker.cpp               mock price ticker
         └── OnionStatus.cpp                mock onion-service status list
