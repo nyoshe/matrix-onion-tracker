@@ -1,54 +1,50 @@
 // Crypto price + onion-link status board: ELEGOO ESP-WROOM-32 + Waveshare
-// 64x32 HUB75 matrix. Same panel wiring as led-matrix-audio-visualizer, minus
-// the sound detector -- this one will poll prices and .onion uptime over
-// WiFi instead of listening to a mic.
+// 64x32 HUB75 matrix + KY-040 rotary encoder. Same panel wiring as
+// led-matrix-audio-visualizer, minus the sound detector -- this one will
+// poll prices and .onion uptime over WiFi instead of listening to a mic.
 //
 // This is a scaffold only: the screens below draw mock data so the matrix,
-// button and screen-switching can be demoed before any networking or
-// price/onion-checking logic exists. See README.md.
+// button, encoder menu and screen-switching can be demoed before any
+// networking or price/onion-checking logic exists. See README.md.
 
 #include "src/config.h"
+#include "src/core/Encoder.h"
 #include "src/core/Matrix.h"
+#include "src/core/Menu.h"
+#include "src/core/Nav.h"
 #include "src/core/Screen.h"
 
 Display* display = nullptr;
-size_t current = 0;
 uint32_t lastSwitchMs = 0;
 float measuredRenderFps = 0;
+bool encoderDebug = false;
 
-void selectScreen(size_t index) {
-  size_t n = Screens::count();
-  current = (index + n) % n;
-  Screens::get(current)->reset();
-  lastSwitchMs = millis();
-  Serial.printf("[%u] %s\n", (unsigned)current, Screens::get(current)->name());
-}
-
-void listScreens() {
-  for (size_t i = 0; i < Screens::count(); i++) {
-    Serial.printf("%c %u: %s\n", i == current ? '*' : ' ', (unsigned)i, Screens::get(i)->name());
-  }
-}
-
-void handleButton() {
+void handleButton() {  // BOOT button: jumps straight to the next screen
   static bool wasPressed = false;
   static uint32_t lastChangeMs = 0;
   bool pressed = digitalRead(Pins::BUTTON) == LOW;
   if (pressed != wasPressed && millis() - lastChangeMs > 30) {  // debounce
     lastChangeMs = millis();
     wasPressed = pressed;
-    if (pressed) selectScreen(current + 1);
+    if (pressed) {
+      Nav::selectScreen(Nav::currentScreen() + 1);
+      lastSwitchMs = millis();
+    }
   }
 }
 
 void handleSerial() {
   while (Serial.available()) {
     char c = Serial.read();
-    if (c == 'n') selectScreen(current + 1);
-    else if (c == 'p') selectScreen(current + Screens::count() - 1);
-    else if (c == 'l') listScreens();
+    if (c == 'n') { Nav::selectScreen(Nav::currentScreen() + 1); lastSwitchMs = millis(); }
+    else if (c == 'p') { Nav::selectScreen(Nav::currentScreen() + (int)Screens::count() - 1); lastSwitchMs = millis(); }
+    else if (c == 'l') Nav::listScreens();
     else if (c == 'd') Serial.printf("render %.1f fps\n", measuredRenderFps);
-    else if (c >= '0' && c <= '9' && (size_t)(c - '0') < Screens::count()) selectScreen(c - '0');
+    else if (c == 'e') { encoderDebug = !encoderDebug; Serial.printf("encoder debug %s\n", encoderDebug ? "on" : "off"); }
+    else if (c >= '0' && c <= '9' && (c - '0') < (int)Screens::count()) {
+      Nav::selectScreen(c - '0');
+      lastSwitchMs = millis();
+    }
   }
 }
 
@@ -69,23 +65,34 @@ void setup() {
   pinMode(Pins::BUTTON, INPUT_PULLUP);
 
   display = &Matrix::begin();
+  Encoder::begin();
 
   if (Screens::count() == 0) {
     Serial.println("No screens registered");
     while (true) delay(1000);
   }
   Serial.println("Crypto/onion board running (demo data, no networking yet)");
-  listScreens();
-  selectScreen(0);
+  Nav::begin();
+  Nav::listScreens();
 }
 
 void loop() {
   handleButton();
   handleSerial();
-  if (AUTO_CYCLE_MS && millis() - lastSwitchMs >= AUTO_CYCLE_MS) selectScreen(current + 1);
+
+  int steps = Encoder::takeSteps();
+  bool click = Encoder::takeClick();
+  if (encoderDebug && (steps || click)) Serial.printf("encoder steps=%d click=%d\n", steps, click);
+
+  bool menuOpen = Menu::update(steps, click);
+  if (!menuOpen && AUTO_CYCLE_MS && millis() - lastSwitchMs >= AUTO_CYCLE_MS) {
+    Nav::selectScreen(Nav::currentScreen() + 1);
+    lastSwitchMs = millis();
+  }
 
   display->fillScreen(0);
-  Screens::get(current)->draw(*display);
+  if (menuOpen) Menu::draw(*display);
+  else Screens::get(Nav::currentScreen())->draw(*display);
   display->flipDMABuffer();
 
   measureRenderFps();

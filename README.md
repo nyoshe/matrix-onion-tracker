@@ -29,12 +29,12 @@ The pin map targets the **ELEGOO ESP-WROOM-32** dev board, which has the 38-pin 
 ```
               antenna
           ┌─────────────┐
-  3V3   ● │             │ ●  GND   ◄ matrix GND
+  3V3   ● │ ◄ ENC +     │ ●  GND   ◄ matrix GND, ENC GND
   EN    ● │             │ ●  23    ◄ A
   VP 36 ● │             │ ●  22    ◄ B
-  VN 39 ● │             │ ●  TX
-  34    ● │             │ ●  21    ◄ C
-  35    ● │             │ ●  19    ◄ D
+  VN 39 ● │ ◄ ENC SW    │ ●  TX
+  34    ● │ ◄ ENC DT    │ ●  21    ◄ C
+  35    ● │ ◄ ENC CLK   │ ●  19    ◄ D
   32    ● │ ◄ R1        │ ●  18    ◄ CLK
   33    ● │ ◄ G1        │ ●  5     ◄ LAT
   25    ● │ ◄ B1        │ ●  17    ◄ OE
@@ -54,17 +54,29 @@ The pin map targets the **ELEGOO ESP-WROOM-32** dev board, which has the 38-pin 
 | HUB75 (2×8 ribbon) | ESP32 | | HUB75 | ESP32 |
 |---|---|---|---|---|
 | R1 | 32 | | G1 | 33 |
-| B1 | 25 | | GND | GND (right header, below 21) |
+| B1 | 25 | | GND | GND (top of right header) |
 | R2 | 26 | | G2 | 27 |
 | B2 | 14 | | E | — (not used at 32 rows) |
 | A | 23 | | B | 22 |
 | C | 21 | | D | 19 |
 | CLK | 18 | | LAT | 5 |
-| OE | 17 | | GND | — |
+| OE | 17 | | GND | GND (same pin is fine) |
 
 The colour lines run down the left header and the address/control lines down the right header, in the same order as the HUB75 connector.
 
+Wire **both** HUB75 GND pins. They can land on the same ESP32 GND pin, since all the ESP32's GND pins are one net. With only one ground wire, ground bounce corrupted bits whenever many data lines switched at once.
+
 Power the matrix from its own 5 V supply rated for at least 2–4 A, and tie its GND to the ESP32's GND.
+
+| KY-040 | ESP32 |
+|---|---|
+| SW | VN / 39 |
+| CLK | 35 |
+| DT | 34 |
+| + | 3V3 |
+| GND | GND |
+
+SW, CLK and DT land on three consecutive rows of the left header (VN, 34, 35), so all three wires come off together. All three are input-only ADC1 pins with no internal pull resistor, so they rely on the KY-040 module's own onboard pull-ups (standard on these breakout boards).
 
 ## Screens (currently mock data)
 
@@ -75,18 +87,25 @@ Power the matrix from its own 5 V supply rated for at least 2–4 A, and tie its
 
 **Switching:** press the board's **BOOT** button to go to the next screen. Over serial (`make monitor`), send `n` for next, `p` for previous, `l` to list them, or `0`–`9` to pick one. Send `d` to print the measured render frame rate. To rotate through them automatically, set `AUTO_CYCLE_MS` in `src/config.h`.
 
+## Menu (KY-040)
+
+Press the encoder to open a small menu over whatever screen is showing: **Screen**, **Brightness**, **Back**. Turn to move the highlight, press to open that item, turn to change its value (screen selection or panel brightness), press again to confirm and return to the list. Selecting **Back** (or pressing while it's highlighted) closes the menu and returns to the active screen. State lives in `src/core/Menu.cpp`; the encoder itself is read in `src/core/Encoder.cpp`.
+
 ## Project layout
 
 ```
 matrix-onion-tracker/
-├── matrix-onion-tracker.ino              render loop: draw active screen, button/serial switching
+├── matrix-onion-tracker.ino              render loop: draw active screen or menu, button/serial/encoder input
 └── src/
     ├── config.h                          pins, panel size, switching settings, WiFi placeholders
     ├── core/
-    │   ├── Matrix.{h,cpp}                 HUB75 panel setup
+    │   ├── Matrix.{h,cpp}                 HUB75 panel setup, runtime brightness
     │   ├── Color.h                        rgb565 / levelColor / hueColor helpers
     │   ├── Screen.h                       base class + REGISTER_SCREEN
-    │   └── Registry.cpp                   list of registered screens
+    │   ├── Registry.cpp                   list of registered screens
+    │   ├── Nav.{h,cpp}                    which screen is active (shared by sketch + menu)
+    │   ├── Encoder.{h,cpp}                KY-040 quadrature + button reading
+    │   └── Menu.{h,cpp}                   on-screen menu state machine + drawing
     └── screens/                           one file per screen
         ├── CryptoTicker.cpp               mock price ticker
         └── OnionStatus.cpp                mock onion-service status list
@@ -126,5 +145,7 @@ The screen is cleared before `draw()` and shown afterwards. Draw the whole pictu
 ## Tuning
 
 - **Panel stays dark or shows garbage:** some Waveshare panels use an FM6126A driver. Uncomment `cfg.driver = HUB75_I2S_CFG::FM6126A;` in `src/core/Matrix.cpp`.
-- **Pixels shimmer:** try `cfg.clkphase = false;`.
-- **Brightness:** change `PANEL_BRIGHTNESS` in `src/config.h`.
+- **Pixels shimmer or show the wrong colour in fixed spots:** `cfg.clkphase` in `src/core/Matrix.cpp` is set to `false` because this panel misread R/B bits on the default edge (white showed as green). If a different panel misbehaves, try setting it back to `true`. The clock is already at the library's minimum of 8 MHz.
+- **Brightness:** change `PANEL_BRIGHTNESS` in `src/config.h` (startup default) or use the menu's **Brightness** item at runtime.
+- **Encoder turns the wrong way:** swap `ENCODER_CLK`/`ENCODER_DT` in `src/config.h`.
+- **Encoder skips or double-counts steps:** adjust the 2 ms debounce window in `src/core/Encoder.cpp`. It triggers on CLK's falling edge only (not `CHANGE`), since DT is steady across a pulse and triggering on both edges would count one detent twice.

@@ -1,0 +1,79 @@
+#include "Encoder.h"
+
+#include <Arduino.h>
+
+#include "../config.h"
+
+namespace {
+
+// Quadrature state machine (Ben Buxton's "full-step" rotary decode table).
+// Walks a graph of valid CLK/DT states and only emits a step once a
+// complete transition sequence finishes; an edge sampled mid-settle (e.g.
+// from RC-slowed signals on a breakout with debounce caps) just lands on an
+// intermediate state instead of emitting a wrong-direction step. This is why
+// there's no time-based debounce here: skipping an edge to "debounce" it
+// would desync the table from the pins' real state.
+constexpr uint8_t R_START     = 0x0;
+constexpr uint8_t R_CW_FINAL  = 0x1;
+constexpr uint8_t R_CW_BEGIN  = 0x2;
+constexpr uint8_t R_CW_NEXT   = 0x3;
+constexpr uint8_t R_CCW_BEGIN = 0x4;
+constexpr uint8_t R_CCW_FINAL = 0x5;
+constexpr uint8_t R_CCW_NEXT  = 0x6;
+constexpr uint8_t DIR_CW  = 0x10;
+constexpr uint8_t DIR_CCW = 0x20;
+
+// Row = current state (low nibble of the previous entry); column =
+// (CLK << 1 | DT). If turning the knob one way reports the wrong direction,
+// that's a calibration thing, not a bug -- swap ENCODER_CLK/ENCODER_DT in
+// config.h, same as before.
+constexpr uint8_t kTransitionTable[7][4] = {
+    {R_START,    R_CW_BEGIN,  R_CCW_BEGIN, R_START},
+    {R_CW_NEXT,  R_START,     R_CW_FINAL,  R_START | DIR_CW},
+    {R_CW_NEXT,  R_CW_BEGIN,  R_START,     R_START},
+    {R_CW_NEXT,  R_CW_BEGIN,  R_CW_FINAL,  R_START},
+    {R_CCW_NEXT, R_START,     R_CCW_BEGIN, R_START},
+    {R_CCW_NEXT, R_CCW_FINAL, R_START,     R_START | DIR_CCW},
+    {R_CCW_NEXT, R_CCW_FINAL, R_CCW_BEGIN, R_START},
+};
+
+volatile uint8_t ringState = R_START;
+volatile int stepAccumulator = 0;
+
+void IRAM_ATTR onEncoderEdge() {
+  uint8_t pinState = (digitalRead(Pins::ENCODER_CLK) << 1) | digitalRead(Pins::ENCODER_DT);
+  ringState = kTransitionTable[ringState & 0xf][pinState];
+  if (ringState & DIR_CW) stepAccumulator++;
+  else if (ringState & DIR_CCW) stepAccumulator--;
+}
+
+}  // namespace
+
+void Encoder::begin() {
+  pinMode(Pins::ENCODER_CLK, INPUT);
+  pinMode(Pins::ENCODER_DT, INPUT);
+  pinMode(Pins::ENCODER_SW, INPUT);  // GPIO39 has no internal pull-up; module supplies its own
+  attachInterrupt(Pins::ENCODER_CLK, onEncoderEdge, CHANGE);
+  attachInterrupt(Pins::ENCODER_DT, onEncoderEdge, CHANGE);
+}
+
+int Encoder::takeSteps() {
+  noInterrupts();
+  int steps = stepAccumulator;
+  stepAccumulator = 0;
+  interrupts();
+  return steps;
+}
+
+bool Encoder::takeClick() {
+  static bool wasPressed = false;
+  static uint32_t lastChangeMs = 0;
+  bool pressed = digitalRead(Pins::ENCODER_SW) == LOW;
+  bool clicked = false;
+  if (pressed != wasPressed && millis() - lastChangeMs > 30) {  // debounce
+    lastChangeMs = millis();
+    wasPressed = pressed;
+    clicked = pressed;  // fires on press, not release
+  }
+  return clicked;
+}

@@ -36,6 +36,15 @@ constexpr int8_t E   = -1;  // unused on a 1/16 scan 32-row panel
 // The board's BOOT button (GPIO0 has an on-board pull-up and is only a
 // strapping pin at reset, so it's free to read afterwards).
 constexpr int8_t BUTTON = 0;
+
+// KY-040 rotary encoder, for the on-screen menu. VN/34/35 are three
+// consecutive rows on the left header, so all three wires land next to each
+// other. All three are input-only ADC1 pins with no internal pull-up, so
+// they rely on the KY-040 module's own onboard pull-up resistors (standard
+// on these breakouts).
+constexpr int8_t ENCODER_SW  = 39;  // VN
+constexpr int8_t ENCODER_CLK = 35;
+constexpr int8_t ENCODER_DT  = 34;
 }  // namespace Pins
 
 // ---- Rendering ---------------------------------------------------------------
@@ -43,6 +52,9 @@ constexpr uint32_t RENDER_FPS = 30;
 
 // ---- Screen switching ---------------------------------------------------------
 constexpr uint32_t AUTO_CYCLE_MS = 0;  // switch screen every N ms; 0 = off
+
+// ---- Menu (KY-040 rotary encoder) --------------------------------------------
+constexpr uint8_t MENU_BRIGHTNESS_STEP = 8;  // brightness change per detent
 
 // ---- Networking (not wired up yet) --------------------------------------------
 // Placeholders for when price/onion polling gets added; nothing reads these yet.
