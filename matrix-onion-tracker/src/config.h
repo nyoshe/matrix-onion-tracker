@@ -61,6 +61,6 @@ constexpr uint32_t WIFI_PER_NETWORK_TIMEOUT_MS = 8000;  // before trying the nex
 constexpr int WIFI_MAX_SAVED_NETWORKS = 8;
 
 // Access point started when no saved network connects; the config portal
-// (src/core/ConfigPortal.*) is reachable there at 192.168.4.1.
-constexpr const char* WIFI_AP_SSID = "matrix-onion-tracker";
-constexpr const char* WIFI_AP_PASSWORD = "onion1234";  // WPA2 needs >=8 chars; change this
+// (src/core/ConfigPortal.*) is reachable there at 192.168.4.1. Open (no
+// password) so it's easy to get to for setup.
+constexpr const char* WIFI_AP_SSID = "config";

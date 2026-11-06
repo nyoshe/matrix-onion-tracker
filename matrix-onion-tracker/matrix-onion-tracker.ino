@@ -113,6 +113,7 @@ void loop() {
 
   display->fillScreen(0);
   if (menuOpen) Menu::draw(*display);
+  else if (!Net::isConnected()) Net::draw(*display);
   else Screens::get(Nav::currentScreen())->draw(*display);
   display->flipDMABuffer();
 

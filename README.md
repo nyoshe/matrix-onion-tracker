@@ -95,13 +95,15 @@ Without an encoder in hand, drive the menu over serial (`make monitor`): `<`/`>`
 
 ## WiFi
 
-At boot, each saved network (`src/core/NetworkStore`) is tried in turn (`WIFI_PER_NETWORK_TIMEOUT_MS` each, see `src/config.h`). If one connects, that's it -- the board is on your network. If none do, or none are saved, it starts an access point instead:
+At boot, each saved network (`src/core/NetworkStore`) is tried in turn (`WIFI_PER_NETWORK_TIMEOUT_MS` each, see `src/config.h`), and the panel shows **Connecting...** plus which network it's currently trying. If one connects, that's it -- the board is on your network, and the panel moves on to its normal screens. If none do, or none are saved, it starts an access point instead and the panel shows that state persistently (not just at boot) until a network connects:
 
-- **SSID:** `WIFI_AP_SSID` (`matrix-onion-tracker` by default)
-- **Password:** `WIFI_AP_PASSWORD` (`onion1234` by default -- change this)
-- **Config page:** connect to that AP and visit `http://192.168.4.1`
+- **SSID:** `WIFI_AP_SSID` in `src/config.h` (`config` by default)
+- **Password:** none -- it's an open network, for easy access during setup
+- **Config page:** connect to that AP and visit `http://192.168.4.1` (shown on the panel too)
 
-The page lists saved networks with a **Delete** button each, and a form to add one by SSID and password. Adding a network saves it and immediately tries connecting to it, while keeping the access point up (dual AP+STA mode) so the page stays reachable if it fails. On success, the access point drops and the page is reachable at the new network's IP instead (printed over serial; there's no on-screen display of it yet).
+The panel's AP-mode screen is drawn in `Net::draw()` (`src/core/Net.cpp`); if `WIFI_AP_SSID` is long, it can run past the panel's 64px width at the current font, since it's static text rather than a scrolling ticker.
+
+The page lists saved networks with a **Delete** button each, and a form to add one by SSID and password. Adding a network saves it and immediately tries connecting to it, while keeping the access point up (dual AP+STA mode) so the page stays reachable if it fails. On success, the access point drops and the page is reachable at the new network's IP instead (printed over serial; the panel doesn't show the STA IP once connected).
 
 This same page is meant to grow into the place for other settings later (tracked currencies/sites), not just WiFi -- see `src/core/ConfigPortal.cpp`.
 
@@ -133,7 +135,7 @@ matrix-onion-tracker/
 - Fetching real prices from an exchange/price API
 - Checking real .onion link availability (needs a Tor-capable proxy somewhere the ESP32 can reach, since the chip itself can't speak the Tor protocol)
 - Any kind of polling, caching or error/timeout handling for either of the above
-- On-screen WiFi status (connected IP, AP mode indicator) -- currently serial-only
+- On-screen status once connected (STA IP) -- serial-only for now; AP mode and connecting are shown
 - Any config page content beyond WiFi networks (the planned currencies/sites settings)
 
 ## Adding a screen

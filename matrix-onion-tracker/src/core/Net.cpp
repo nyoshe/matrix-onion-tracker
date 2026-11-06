@@ -5,6 +5,7 @@
 #include <string.h>
 
 #include "../config.h"
+#include "Color.h"
 #include "NetworkStore.h"
 
 namespace {
@@ -26,7 +27,7 @@ void copyTruncated(char* dst, size_t dstLen, const char* src) {
 
 void startAp() {
   WiFi.mode(WIFI_AP);
-  WiFi.softAP(WIFI_AP_SSID, WIFI_AP_PASSWORD);
+  WiFi.softAP(WIFI_AP_SSID);  // no password: open network
   apUp = true;
   mode = Mode::kApOnly;
   Serial.printf("WiFi: no network joined, AP '%s' up at %s\n", WIFI_AP_SSID,
@@ -90,3 +91,26 @@ const char* Net::connectedSsid() { return connectedSsidBuf; }
 const char* Net::staIp() { return staIpBuf; }
 
 bool Net::isApActive() { return apUp; }
+
+void Net::draw(Display& display) {
+  display.setTextSize(1);
+  display.setTextWrap(false);
+
+  if (apUp) {
+    display.setTextColor(0xFFFF);
+    display.setCursor(1, 2 + FONT_ASCENT);
+    display.print("Connect to:");
+    display.setCursor(1, 12 + FONT_ASCENT);
+    display.print(WIFI_AP_SSID);
+    display.setTextColor(hueColor(0.5f));  // cyan: the actionable step
+    display.setCursor(1, 22 + FONT_ASCENT);
+    display.print("192.168.4.1");
+  } else {
+    display.setTextColor(0xFFFF);
+    display.setCursor(1, 8 + FONT_ASCENT);
+    display.print("Connecting...");
+    display.setTextColor(hueColor(0.5f));
+    display.setCursor(1, 18 + FONT_ASCENT);
+    display.print(NetworkStore::ssid(currentIndex));
+  }
+}
