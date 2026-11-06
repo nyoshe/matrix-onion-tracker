@@ -14,7 +14,7 @@ class CryptoTicker : public Screen {
   void draw(Display& display) override {
     display.setTextSize(1);
     display.setTextWrap(false);
-    display.setCursor(scrollX_, PANEL_HEIGHT / 2 - 4);
+    display.setCursor(scrollX_, (PANEL_HEIGHT - FONT_ASCENT) / 2 + FONT_ASCENT);
 
     for (const Entry& e : kMockEntries) {
       display.setTextColor(0xFFFF);
@@ -25,7 +25,9 @@ class CryptoTicker : public Screen {
       display.print("   ");
     }
 
-    if (--scrollX_ < -kLineWidthPx) scrollX_ = PANEL_WIDTH;
+    int lineEndX = display.getCursorX();
+    scrollX_--;
+    if (lineEndX < 0) scrollX_ = PANEL_WIDTH;
   }
 
  private:
@@ -40,8 +42,6 @@ class CryptoTicker : public Screen {
       {"ETH", "3,512", false},
       {"SOL", "148.90", true},
   };
-  static constexpr int kLineWidthPx = 220;  // rough width of kMockEntries at text size 1
-
   int scrollX_ = PANEL_WIDTH;
 };
 

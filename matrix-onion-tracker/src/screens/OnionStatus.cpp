@@ -13,13 +13,13 @@ class OnionStatus : public Screen {
     display.setTextWrap(false);
 
     for (int i = 0; i < kCount; i++) {
-      int y = 2 + i * 8;
+      int top = 2 + i * 8;
       display.setTextColor(0xFFFF);
-      display.setCursor(2, y);
+      display.setCursor(2, top + FONT_ASCENT);
       display.print(kMockSites[i].label);
 
       uint16_t dot = kMockSites[i].up ? levelColor(0.0f) : levelColor(1.0f);
-      display.fillCircle(PANEL_WIDTH - 6, y + 3, 2, dot);
+      display.fillCircle(PANEL_WIDTH - 6, top + 2, 2, dot);
     }
   }
 

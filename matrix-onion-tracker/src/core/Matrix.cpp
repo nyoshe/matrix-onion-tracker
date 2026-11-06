@@ -1,5 +1,7 @@
 #include "Matrix.h"
 
+#include <Fonts/TomThumb.h>
+
 #include "../config.h"
 
 namespace {
@@ -25,6 +27,7 @@ Display& Matrix::begin() {
     while (true) delay(1000);
   }
   activeDisplay = display;
+  display->setFont(&TomThumb);
   Matrix::setBrightness(PANEL_BRIGHTNESS);
   display->clearScreen();
   return *display;

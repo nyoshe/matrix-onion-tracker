@@ -90,10 +90,10 @@ void Menu::draw(Display& display) {
     char value[24];
     valueText(kItems[selected].kind, value, sizeof(value));
     display.setTextColor(0xFFFF);
-    display.setCursor(2, 4);
+    display.setCursor(2, 4 + FONT_ASCENT);
     display.print(kItems[selected].label);
     display.setTextColor(hueColor(0.5f));  // cyan: editing this value live
-    display.setCursor(2, 18);
+    display.setCursor(2, 18 + FONT_ASCENT);
     display.print(value);
     return;
   }
@@ -101,7 +101,7 @@ void Menu::draw(Display& display) {
   for (int i = 0; i < kItemCount; i++) {
     bool isSelected = (i == selected);
     display.setTextColor(isSelected ? hueColor(0.12f) : 0xFFFF);  // amber highlight
-    display.setCursor(1, 1 + i * 10);
+    display.setCursor(1, 1 + i * 10 + FONT_ASCENT);
     display.print(isSelected ? "> " : "  ");
     display.print(kItems[i].label);
   }
