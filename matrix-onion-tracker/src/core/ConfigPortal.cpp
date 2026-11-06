@@ -47,10 +47,12 @@ void handleRoot() {
     appendEscaped(page, Net::connectedSsid());
     page += "</b> (" + String(Net::staIp()) + ")</p>";
   } else {
+    // No auto-refresh here: this page is reached while filling out the add
+    // form below, and a full reload mid-typing would wipe it out. Reload
+    // manually to check whether it connected.
     page +=
         "<p>Not connected to a network yet -- trying any saved networks. "
-        "Add one below once this page is reachable again.</p>"
-        "<meta http-equiv=refresh content=5>";
+        "Add one below, or reload this page to check status.</p>";
   }
 
   page += "<h2>Saved networks</h2><ul>";
