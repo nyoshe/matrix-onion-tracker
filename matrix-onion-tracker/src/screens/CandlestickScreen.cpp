@@ -6,7 +6,7 @@
 
 namespace {
 constexpr int kCandleWidth = PANEL_WIDTH / PriceFeed::kCandleCount;
-constexpr int kHeaderHeight = 14;  // symbol + price/change live here, chart below it
+constexpr int kHeaderHeight = 9;  // one line: symbol + price + change, chart below it
 constexpr int kChartTop = kHeaderHeight;
 constexpr int kChartHeight = PANEL_HEIGHT - kHeaderHeight;
 }  // namespace
@@ -42,23 +42,36 @@ void CandlestickScreen::draw(Display& display) {
 
   display.setTextSize(1);
   display.setTextWrap(false);
-  display.setTextColor(0xFFFF);
-  display.setCursor(1, FONT_ASCENT);
-  display.print(symbol_);
 
   PriceFeed::Price price = price_();
-  display.setCursor(1, 7 + FONT_ASCENT);
-  if (!price.valid) {
-    display.print("...");
-    return;
+  char priceBuf[16] = "...";
+  char changeBuf[12] = "";
+  if (price.valid) {
+    snprintf(priceBuf, sizeof(priceBuf), "$%.0f", price.usd);
+    snprintf(changeBuf, sizeof(changeBuf), " %+.1f%%", price.change24h);
   }
 
-  char priceBuf[16];
-  snprintf(priceBuf, sizeof(priceBuf), "$%.0f", price.usd);
-  display.print(priceBuf);
+  char line[48];
+  snprintf(line, sizeof(line), "%s %s%s", symbol_, priceBuf, changeBuf);
+  int16_t boundsX, boundsY;
+  uint16_t lineWidth, lineHeight;
+  display.getTextBounds(line, 0, 0, &boundsX, &boundsY, &lineWidth, &lineHeight);
 
-  char changeBuf[12];
-  snprintf(changeBuf, sizeof(changeBuf), " %+.1f%%", price.change24h);
-  display.setTextColor(price.change24h >= 0 ? levelColor(0.0f) : levelColor(1.0f));
-  display.print(changeBuf);
+  int x;
+  if ((int)lineWidth <= PANEL_WIDTH) {
+    x = 1;  // fits: no need to scroll
+  } else {
+    x = scrollX_;
+    scrollX_ = (scrollX_ <= -(int)lineWidth) ? PANEL_WIDTH : scrollX_ - 1;
+  }
+
+  display.setCursor(x, FONT_ASCENT);
+  display.setTextColor(0xFFFF);
+  display.print(symbol_);
+  display.print(' ');
+  display.print(priceBuf);
+  if (price.valid) {
+    display.setTextColor(price.change24h >= 0 ? levelColor(0.0f) : levelColor(1.0f));
+    display.print(changeBuf);
+  }
 }

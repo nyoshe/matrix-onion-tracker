@@ -8,6 +8,7 @@
 class CandlestickScreen : public Screen {
  public:
   const char* name() const override { return name_; }
+  void reset() override { scrollX_ = 0; }
   void draw(Display& display) override;
 
  protected:
@@ -20,4 +21,5 @@ class CandlestickScreen : public Screen {
   const char* symbol_;
   PriceFeed::Price (*price_)();
   PriceFeed::History (*history_)();
+  int scrollX_ = 0;  // only moves once the header line is too wide to fit
 };
