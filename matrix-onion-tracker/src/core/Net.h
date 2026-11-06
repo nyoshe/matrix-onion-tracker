@@ -3,8 +3,12 @@
 #include <stdint.h>
 
 // ESP32 WiFi scan/connect, polled from WifiFlow so neither blocks the render
-// loop. Radio is started lazily on first use.
+// loop.
 namespace Net {
+// Call once from setup(). Starts STA mode and, if a password was saved from
+// an earlier connect, reconnects to it in the background.
+void begin();
+
 void startScan();
 
 enum class ScanState { kScanning, kDone, kFailed };

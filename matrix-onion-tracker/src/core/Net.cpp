@@ -25,7 +25,6 @@ void ensureStarted() {
   if (wifiStarted) return;
   wifiStarted = true;
   WiFi.mode(WIFI_STA);
-  WiFi.disconnect();
 }
 
 void copyTruncated(char* dst, size_t dstLen, const char* src) {
@@ -34,6 +33,12 @@ void copyTruncated(char* dst, size_t dstLen, const char* src) {
 }
 
 }  // namespace
+
+void Net::begin() {
+  ensureStarted();
+  Serial.println("WiFi: reconnecting with saved credentials (if any)...");
+  WiFi.begin();  // "connect to SDK config": reconnects using NVS-saved credentials
+}
 
 void Net::startScan() {
   ensureStarted();

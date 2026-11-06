@@ -12,6 +12,7 @@
 #include "src/core/Matrix.h"
 #include "src/core/Menu.h"
 #include "src/core/Nav.h"
+#include "src/core/Net.h"
 #include "src/core/Screen.h"
 
 Display* display = nullptr;
@@ -76,6 +77,7 @@ void setup() {
 
   display = &Matrix::begin();
   Encoder::begin();
+  Net::begin();
 
   if (Screens::count() == 0) {
     Serial.println("No screens registered");
