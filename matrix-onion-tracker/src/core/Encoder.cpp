@@ -65,15 +65,51 @@ int Encoder::takeSteps() {
   return steps;
 }
 
-bool Encoder::takeClick() {
+namespace {
+bool pendingClick = false;
+bool pendingLongClick = false;
+}  // namespace
+
+void Encoder::pollButton() {
   static bool wasPressed = false;
-  static uint32_t lastChangeMs = 0;
-  bool pressed = digitalRead(Pins::ENCODER_SW) == LOW;
-  bool clicked = false;
-  if (pressed != wasPressed && millis() - lastChangeMs > 30) {  // debounce
-    lastChangeMs = millis();
-    wasPressed = pressed;
-    clicked = pressed;  // fires on press, not release
+  static bool candidate = false;
+  static uint8_t agreeCount = 0;
+  static uint32_t pressStartMs = 0;
+  static bool longFired = false;
+
+  bool raw = digitalRead(Pins::ENCODER_SW) == LOW;
+
+  // GPIO39 gets brief spurious pull-downs when the radio's ADC is active;
+  // require two consecutive polls to agree before trusting a level change.
+  if (raw == candidate) {
+    if (agreeCount < 2) agreeCount++;
+  } else {
+    candidate = raw;
+    agreeCount = 1;
   }
-  return clicked;
+  bool pressed = (agreeCount >= 2) ? candidate : wasPressed;
+
+  uint32_t now = millis();
+  if (pressed && !wasPressed) {
+    pressStartMs = now;
+    longFired = false;
+  } else if (pressed && wasPressed && !longFired && now - pressStartMs >= ENCODER_LONG_PRESS_MS) {
+    longFired = true;
+    pendingLongClick = true;
+  } else if (!pressed && wasPressed && !longFired) {
+    pendingClick = true;  // short press, released before the long threshold
+  }
+  wasPressed = pressed;
+}
+
+bool Encoder::takeClick() {
+  bool c = pendingClick;
+  pendingClick = false;
+  return c;
+}
+
+bool Encoder::takeLongClick() {
+  bool c = pendingLongClick;
+  pendingLongClick = false;
+  return c;
 }

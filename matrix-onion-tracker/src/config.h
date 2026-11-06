@@ -54,9 +54,8 @@ constexpr uint32_t RENDER_FPS = 30;
 constexpr uint32_t AUTO_CYCLE_MS = 0;  // switch screen every N ms; 0 = off
 
 // ---- Menu (KY-040 rotary encoder) --------------------------------------------
-constexpr uint8_t MENU_BRIGHTNESS_STEP = 8;  // brightness change per detent
+constexpr uint8_t MENU_BRIGHTNESS_STEP = 8;     // brightness change per detent
+constexpr uint32_t ENCODER_LONG_PRESS_MS = 600;  // held this long -> long click, not a short one
 
-// ---- Networking (not wired up yet) --------------------------------------------
-// Placeholders for when price/onion polling gets added; nothing reads these yet.
-constexpr const char* WIFI_SSID     = "";
-constexpr const char* WIFI_PASSWORD = "";
+// ---- WiFi ---------------------------------------------------------------------
+constexpr uint32_t WIFI_CONNECT_TIMEOUT_MS = 15000;  // give up and report failure after this long

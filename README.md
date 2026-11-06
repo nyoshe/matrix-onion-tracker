@@ -6,10 +6,9 @@ Same hardware as [led-matrix-audio-visualizer](../led-matrix-audio-visualizer),
 minus the SparkFun Sound Detector -- this one will poll prices and onion
 uptime over WiFi instead of listening to a mic.
 
-**Status: scaffold only.** Nothing fetches real data yet. The two screens
-below draw hardcoded mock values so the matrix, BOOT-button switching and
-serial commands can be demoed before any networking, price-API or
-onion-checking logic exists.
+**Status: partial.** The menu's **WiFi** item makes a real connection (scan,
+pick a network, enter a password with the knob). The two screens still draw
+hardcoded mock values -- price and onion-uptime polling aren't wired up yet.
 
 ## Build environment
 
@@ -89,7 +88,21 @@ SW, CLK and DT land on three consecutive rows of the left header (VN, 34, 35), s
 
 ## Menu (KY-040)
 
-Press the encoder to open a small menu over whatever screen is showing: **Screen**, **Brightness**, **Back**. Turn to move the highlight, press to open that item, turn to change its value (screen selection or panel brightness), press again to confirm and return to the list. Selecting **Back** (or pressing while it's highlighted) closes the menu and returns to the active screen. State lives in `src/core/Menu.cpp`; the encoder itself is read in `src/core/Encoder.cpp`.
+Press the encoder to open a small menu over whatever screen is showing: **Screen**, **Brightness**, **WiFi**, **Back**. Turn to move the highlight, press to open that item, turn to change its value, press again to confirm and return to the list. Selecting **Back** (or pressing while it's highlighted) closes the menu and returns to the active screen. State lives in `src/core/Menu.cpp`; the encoder itself is read in `src/core/Encoder.cpp`.
+
+A press now fires on *release*, not on press -- needed so a short press and a long press (held for `ENCODER_LONG_PRESS_MS`, see `src/config.h`) can be told apart before deciding which one happened.
+
+### WiFi
+
+Opening **WiFi** scans and shows nearby networks, plus **Rescan** and **Back**. Picking an open network connects immediately; picking a secured one enters password entry:
+
+- **Turn** the knob to choose a character for the current position (shown live, unmasked; `_` means none chosen yet).
+- **Press** commits that character and moves to the next position (already-typed characters show as `*`).
+- **Long-press** commits the current character (if one's chosen) and submits the password.
+
+A **Connected**/**Failed** screen follows, then any press returns to the network list -- the connected network is marked with a green dot. There's no delete or cancel once you're in password entry; picking the wrong network means typing a password and waiting for it to fail.
+
+Without an encoder in hand, drive the whole menu over serial (`make monitor`): `<`/`>` turn, `c` clicks, `C` long-clicks.
 
 ## Project layout
 
@@ -97,7 +110,7 @@ Press the encoder to open a small menu over whatever screen is showing: **Screen
 matrix-onion-tracker/
 ├── matrix-onion-tracker.ino              render loop: draw active screen or menu, button/serial/encoder input
 └── src/
-    ├── config.h                          pins, panel size, switching settings, WiFi placeholders
+    ├── config.h                          pins, panel size, switching settings, timings
     ├── core/
     │   ├── Matrix.{h,cpp}                 HUB75 panel setup, runtime brightness
     │   ├── Color.h                        rgb565 / levelColor / hueColor helpers
@@ -105,7 +118,9 @@ matrix-onion-tracker/
     │   ├── Registry.cpp                   list of registered screens
     │   ├── Nav.{h,cpp}                    which screen is active (shared by sketch + menu)
     │   ├── Encoder.{h,cpp}                KY-040 quadrature + button reading
-    │   └── Menu.{h,cpp}                   on-screen menu state machine + drawing
+    │   ├── Menu.{h,cpp}                   on-screen menu state machine + drawing
+    │   ├── Net.{h,cpp}                    ESP32 WiFi scan/connect wrapper
+    │   └── WifiFlow.{h,cpp}               WiFi menu item: scan, list, password entry, connect
     └── screens/                           one file per screen
         ├── CryptoTicker.cpp               mock price ticker
         └── OnionStatus.cpp                mock onion-service status list
@@ -113,10 +128,10 @@ matrix-onion-tracker/
 
 ## What's not implemented yet
 
-- WiFi connection (`WIFI_SSID`/`WIFI_PASSWORD` in `src/config.h` are placeholders, unused)
 - Fetching real prices from an exchange/price API
 - Checking real .onion link availability (needs a Tor-capable proxy somewhere the ESP32 can reach, since the chip itself can't speak the Tor protocol)
 - Any kind of polling, caching or error/timeout handling for either of the above
+- Reconnecting to a saved network after a reboot (the password isn't persisted anywhere)
 
 ## Adding a screen
 
@@ -148,4 +163,5 @@ The screen is cleared before `draw()` and shown afterwards. Draw the whole pictu
 - **Pixels shimmer or show the wrong colour in fixed spots:** `cfg.clkphase` in `src/core/Matrix.cpp` is set to `false` because this panel misread R/B bits on the default edge (white showed as green). If a different panel misbehaves, try setting it back to `true`. The clock is already at the library's minimum of 8 MHz.
 - **Brightness:** change `PANEL_BRIGHTNESS` in `src/config.h` (startup default) or use the menu's **Brightness** item at runtime.
 - **Encoder turns the wrong way:** swap `ENCODER_CLK`/`ENCODER_DT` in `src/config.h`.
-- **Encoder skips or double-counts steps:** adjust the 2 ms debounce window in `src/core/Encoder.cpp`. It triggers on CLK's falling edge only (not `CHANGE`), since DT is steady across a pulse and triggering on both edges would count one detent twice.
+- **Encoder skips or double-counts steps:** `src/core/Encoder.cpp` decodes CLK/DT with a quadrature state machine (interrupts on both pins, no time-based debounce -- skipping an edge to "debounce" it would desync the table from the pins' real state). If it still misbehaves, it's more likely a wiring/contact issue than a timing one.
+- **Button is flaky, especially once WiFi is in use:** GPIO39 (the `SW` pin) gets brief spurious pull-downs from the radio's ADC; `Encoder::pollButton()` requires two consecutive polls to agree before trusting a level change. Loosen or tighten that in `src/core/Encoder.cpp` if presses feel laggy or still bounce.
