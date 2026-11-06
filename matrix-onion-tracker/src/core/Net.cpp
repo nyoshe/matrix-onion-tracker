@@ -5,109 +5,88 @@
 #include <string.h>
 
 #include "../config.h"
+#include "NetworkStore.h"
 
 namespace {
 
-constexpr int kMaxNetworks = 16;
-char ssidBuf[kMaxNetworks][33];
-bool openBuf[kMaxNetworks];
-int networkCountCached = 0;
-bool resultsCached = false;
+enum class Mode { kTrying, kConnected, kApOnly };
+Mode mode = Mode::kTrying;
+bool apUp = false;
+int currentIndex = 0;
+int attemptsRemaining = 0;
+uint32_t attemptStartMs = 0;
 
 char connectedSsidBuf[33] = "";
-
-Net::ConnectState connectStateValue = Net::ConnectState::kIdle;
-uint32_t connectStartMs = 0;
-
-bool wifiStarted = false;
-
-void ensureStarted() {
-  if (wifiStarted) return;
-  wifiStarted = true;
-  WiFi.mode(WIFI_STA);
-}
+char staIpBuf[16] = "";
 
 void copyTruncated(char* dst, size_t dstLen, const char* src) {
   strncpy(dst, src, dstLen - 1);
   dst[dstLen - 1] = '\0';
 }
 
+void startAp() {
+  WiFi.mode(WIFI_AP);
+  WiFi.softAP(WIFI_AP_SSID, WIFI_AP_PASSWORD);
+  apUp = true;
+  mode = Mode::kApOnly;
+  Serial.printf("WiFi: no network joined, AP '%s' up at %s\n", WIFI_AP_SSID,
+                WiFi.softAPIP().toString().c_str());
+}
+
+void startAttempt(int index) {
+  currentIndex = index;
+  attemptStartMs = millis();
+  WiFi.mode(apUp ? WIFI_AP_STA : WIFI_STA);
+  Serial.printf("WiFi: trying %s\n", NetworkStore::ssid(index));
+  WiFi.begin(NetworkStore::ssid(index), NetworkStore::password(index));
+  mode = Mode::kTrying;
+}
+
 }  // namespace
 
 void Net::begin() {
-  ensureStarted();
-  Serial.println("WiFi: reconnecting with saved credentials (if any)...");
-  WiFi.begin();  // "connect to SDK config": reconnects using NVS-saved credentials
+  int n = NetworkStore::count();
+  if (n == 0) {
+    startAp();
+    return;
+  }
+  attemptsRemaining = n;
+  startAttempt(0);
 }
 
-void Net::startScan() {
-  ensureStarted();
-  resultsCached = false;
-  networkCountCached = 0;
-  WiFi.scanNetworks(true);
+void Net::tryIndex(int i) {
+  if (i < 0 || i >= NetworkStore::count()) return;
+  attemptsRemaining = NetworkStore::count();
+  startAttempt(i);
 }
 
-Net::ScanState Net::scanState() {
-  int n = WiFi.scanComplete();
-  if (n == WIFI_SCAN_RUNNING) return ScanState::kScanning;
-  if (n == WIFI_SCAN_FAILED) return ScanState::kFailed;
+void Net::poll() {
+  if (mode != Mode::kTrying) return;
 
-  if (!resultsCached) {
-    // Skip hidden (empty-SSID) networks and dedupe mesh APs that repeat the
-    // same SSID on every node -- otherwise the connected-marker would match
-    // more than one row.
-    for (int i = 0; i < n && networkCountCached < kMaxNetworks; i++) {
-      String ssid = WiFi.SSID(i);
-      if (ssid.length() == 0) continue;
-      bool duplicate = false;
-      for (int j = 0; j < networkCountCached; j++) {
-        if (strcmp(ssidBuf[j], ssid.c_str()) == 0) { duplicate = true; break; }
-      }
-      if (duplicate) continue;
-      copyTruncated(ssidBuf[networkCountCached], sizeof(ssidBuf[0]), ssid.c_str());
-      openBuf[networkCountCached] = WiFi.encryptionType(i) == WIFI_AUTH_OPEN;
-      networkCountCached++;
+  if (WiFi.status() == WL_CONNECTED) {
+    copyTruncated(connectedSsidBuf, sizeof(connectedSsidBuf), NetworkStore::ssid(currentIndex));
+    copyTruncated(staIpBuf, sizeof(staIpBuf), WiFi.localIP().toString().c_str());
+    Serial.printf("WiFi: connected to %s, IP %s\n", connectedSsidBuf, staIpBuf);
+    apUp = false;
+    WiFi.mode(WIFI_STA);  // drop the AP now that a real connection works
+    mode = Mode::kConnected;
+    return;
+  }
+
+  if (millis() - attemptStartMs > WIFI_PER_NETWORK_TIMEOUT_MS) {
+    attemptsRemaining--;
+    if (attemptsRemaining <= 0) {
+      startAp();
+      return;
     }
-    resultsCached = true;
+    startAttempt((currentIndex + 1) % NetworkStore::count());
   }
-  return ScanState::kDone;
 }
 
-int Net::networkCount() { return networkCountCached; }
+bool Net::isConnected() { return mode == Mode::kConnected; }
 
-const char* Net::networkSsid(int i) {
-  return (i >= 0 && i < networkCountCached) ? ssidBuf[i] : "";
-}
+const char* Net::connectedSsid() { return connectedSsidBuf; }
 
-bool Net::networkIsOpen(int i) {
-  return (i >= 0 && i < networkCountCached) && openBuf[i];
-}
+const char* Net::staIp() { return staIpBuf; }
 
-void Net::connect(const char* ssid, const char* password) {
-  ensureStarted();
-  connectStateValue = ConnectState::kConnecting;
-  connectStartMs = millis();
-  WiFi.begin(ssid, (password && password[0]) ? password : nullptr);
-}
-
-Net::ConnectState Net::connectState() {
-  if (connectStateValue != ConnectState::kConnecting) return connectStateValue;
-
-  if (WiFi.status() == WL_CONNECTED) {
-    connectStateValue = ConnectState::kConnected;
-  } else if (millis() - connectStartMs > WIFI_CONNECT_TIMEOUT_MS ||
-             WiFi.status() == WL_CONNECT_FAILED || WiFi.status() == WL_NO_SSID_AVAIL) {
-    WiFi.disconnect();  // otherwise the station keeps retrying in the background
-    connectStateValue = ConnectState::kFailed;
-  }
-  return connectStateValue;
-}
-
-bool Net::isConnected() { return WiFi.status() == WL_CONNECTED; }
-
-const char* Net::connectedSsid() {
-  if (WiFi.status() == WL_CONNECTED) {
-    copyTruncated(connectedSsidBuf, sizeof(connectedSsidBuf), WiFi.SSID().c_str());
-  }
-  return connectedSsidBuf;
-}
+bool Net::isApActive() { return apUp; }

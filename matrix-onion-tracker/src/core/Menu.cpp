@@ -6,11 +6,10 @@
 #include "Color.h"
 #include "Nav.h"
 #include "Screen.h"
-#include "WifiFlow.h"
 
 namespace {
 
-enum class Kind { kScreen, kBrightness, kWifi, kBack };
+enum class Kind { kScreen, kBrightness, kBack };
 struct Item {
   const char* label;
   Kind kind;
@@ -18,13 +17,12 @@ struct Item {
 constexpr Item kItems[] = {
     {"Screen", Kind::kScreen},
     {"Brightness", Kind::kBrightness},
-    {"WiFi", Kind::kWifi},
     {"Back", Kind::kBack},
 };
 constexpr int kItemCount = sizeof(kItems) / sizeof(kItems[0]);
-constexpr int kRowHeight = 7;  // 4 items now fit the panel's 32px height
+constexpr int kRowHeight = 10;
 
-enum class State { kClosed, kBrowsing, kEditing, kWifi };
+enum class State { kClosed, kBrowsing, kEditing };
 State state = State::kClosed;
 int selected = 0;
 
@@ -42,7 +40,6 @@ void applyStep(Kind kind, int steps) {
       Matrix::setBrightness(
           (uint8_t)clampInt((int)Matrix::brightness() + steps * MENU_BRIGHTNESS_STEP, 0, 255));
       break;
-    case Kind::kWifi:
     case Kind::kBack:
       break;
   }
@@ -56,7 +53,6 @@ void valueText(Kind kind, char* out, size_t outLen) {
     case Kind::kBrightness:
       snprintf(out, outLen, "%u", Matrix::brightness());
       break;
-    case Kind::kWifi:
     case Kind::kBack:
       out[0] = '\0';
       break;
@@ -65,7 +61,7 @@ void valueText(Kind kind, char* out, size_t outLen) {
 
 }  // namespace
 
-bool Menu::update(int steps, bool click, bool longClick) {
+bool Menu::update(int steps, bool click) {
   switch (state) {
     case State::kClosed:
       if (click) {
@@ -76,29 +72,12 @@ bool Menu::update(int steps, bool click, bool longClick) {
 
     case State::kBrowsing:
       if (steps) selected = wrapIndex(selected + steps, kItemCount);
-      if (click) {
-        switch (kItems[selected].kind) {
-          case Kind::kBack:
-            state = State::kClosed;
-            break;
-          case Kind::kWifi:
-            WifiFlow::begin();
-            state = State::kWifi;
-            break;
-          default:
-            state = State::kEditing;
-            break;
-        }
-      }
+      if (click) state = kItems[selected].kind == Kind::kBack ? State::kClosed : State::kEditing;
       break;
 
     case State::kEditing:
       if (steps) applyStep(kItems[selected].kind, steps);
       if (click) state = State::kBrowsing;
-      break;
-
-    case State::kWifi:
-      if (!WifiFlow::update(steps, click, longClick)) state = State::kBrowsing;
       break;
   }
   return state != State::kClosed;
@@ -107,11 +86,6 @@ bool Menu::update(int steps, bool click, bool longClick) {
 void Menu::draw(Display& display) {
   display.setTextSize(1);
   display.setTextWrap(false);
-
-  if (state == State::kWifi) {
-    WifiFlow::draw(display);
-    return;
-  }
 
   if (state == State::kEditing) {
     char value[24];

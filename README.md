@@ -6,9 +6,10 @@ Same hardware as [led-matrix-audio-visualizer](../led-matrix-audio-visualizer),
 minus the SparkFun Sound Detector -- this one will poll prices and onion
 uptime over WiFi instead of listening to a mic.
 
-**Status: partial.** The menu's **WiFi** item makes a real connection (scan,
-pick a network, enter a password with the knob). The two screens still draw
-hardcoded mock values -- price and onion-uptime polling aren't wired up yet.
+**Status: partial.** WiFi connects to a saved network automatically, or
+starts an access point with a web config page to add one. The two screens
+still draw hardcoded mock values -- price and onion-uptime polling aren't
+wired up yet.
 
 ## Build environment
 
@@ -88,21 +89,21 @@ SW, CLK and DT land on three consecutive rows of the left header (VN, 34, 35), s
 
 ## Menu (KY-040)
 
-Press the encoder to open a small menu over whatever screen is showing: **Screen**, **Brightness**, **WiFi**, **Back**. Turn to move the highlight, press to open that item, turn to change its value, press again to confirm and return to the list. Selecting **Back** (or pressing while it's highlighted) closes the menu and returns to the active screen. State lives in `src/core/Menu.cpp`; the encoder itself is read in `src/core/Encoder.cpp`.
+Press the encoder to open a small menu over whatever screen is showing: **Screen**, **Brightness**, **Back**. Turn to move the highlight, press to open that item, turn to change its value, press again to confirm and return to the list. Selecting **Back** (or pressing while it's highlighted) closes the menu and returns to the active screen. State lives in `src/core/Menu.cpp`; the encoder itself is read in `src/core/Encoder.cpp`.
 
-A press now fires on *release*, not on press -- needed so a short press and a long press (held for `ENCODER_LONG_PRESS_MS`, see `src/config.h`) can be told apart before deciding which one happened.
+Without an encoder in hand, drive the menu over serial (`make monitor`): `<`/`>` turn, `c` clicks.
 
-### WiFi
+## WiFi
 
-Opening **WiFi** scans and shows nearby networks, plus **Rescan** and **Back**. Picking an open network connects immediately; picking a secured one enters password entry:
+At boot, each saved network (`src/core/NetworkStore`) is tried in turn (`WIFI_PER_NETWORK_TIMEOUT_MS` each, see `src/config.h`). If one connects, that's it -- the board is on your network. If none do, or none are saved, it starts an access point instead:
 
-- **Turn** the knob to choose a character for the current position (shown live, unmasked; `_` means none chosen yet).
-- **Press** commits that character and moves to the next position (already-typed characters show as `*`).
-- **Long-press** commits the current character (if one's chosen) and submits the password.
+- **SSID:** `WIFI_AP_SSID` (`matrix-onion-tracker` by default)
+- **Password:** `WIFI_AP_PASSWORD` (`onion1234` by default -- change this)
+- **Config page:** connect to that AP and visit `http://192.168.4.1`
 
-A **Connected**/**Failed** screen follows, then any press returns to the network list -- the connected network is marked with a green dot. There's no delete or cancel once you're in password entry; picking the wrong network means typing a password and waiting for it to fail.
+The page lists saved networks with a **Delete** button each, and a form to add one by SSID and password. Adding a network saves it and immediately tries connecting to it, while keeping the access point up (dual AP+STA mode) so the page stays reachable if it fails. On success, the access point drops and the page is reachable at the new network's IP instead (printed over serial; there's no on-screen display of it yet).
 
-Without an encoder in hand, drive the whole menu over serial (`make monitor`): `<`/`>` turn, `c` clicks, `C` long-clicks.
+This same page is meant to grow into the place for other settings later (tracked currencies/sites), not just WiFi -- see `src/core/ConfigPortal.cpp`.
 
 ## Project layout
 
@@ -119,8 +120,9 @@ matrix-onion-tracker/
     │   ├── Nav.{h,cpp}                    which screen is active (shared by sketch + menu)
     │   ├── Encoder.{h,cpp}                KY-040 quadrature + button reading
     │   ├── Menu.{h,cpp}                   on-screen menu state machine + drawing
-    │   ├── Net.{h,cpp}                    ESP32 WiFi scan/connect wrapper
-    │   └── WifiFlow.{h,cpp}               WiFi menu item: scan, list, password entry, connect
+    │   ├── NetworkStore.{h,cpp}           persisted list of saved WiFi networks (NVS)
+    │   ├── Net.{h,cpp}                    tries saved networks, falls back to an AP
+    │   └── ConfigPortal.{h,cpp}           web page to add/remove saved networks
     └── screens/                           one file per screen
         ├── CryptoTicker.cpp               mock price ticker
         └── OnionStatus.cpp                mock onion-service status list
@@ -131,7 +133,8 @@ matrix-onion-tracker/
 - Fetching real prices from an exchange/price API
 - Checking real .onion link availability (needs a Tor-capable proxy somewhere the ESP32 can reach, since the chip itself can't speak the Tor protocol)
 - Any kind of polling, caching or error/timeout handling for either of the above
-- Reconnecting to a saved network after a reboot (the password isn't persisted anywhere)
+- On-screen WiFi status (connected IP, AP mode indicator) -- currently serial-only
+- Any config page content beyond WiFi networks (the planned currencies/sites settings)
 
 ## Adding a screen
 

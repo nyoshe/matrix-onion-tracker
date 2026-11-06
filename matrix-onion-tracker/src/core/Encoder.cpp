@@ -67,15 +67,12 @@ int Encoder::takeSteps() {
 
 namespace {
 bool pendingClick = false;
-bool pendingLongClick = false;
 }  // namespace
 
 void Encoder::pollButton() {
   static bool wasPressed = false;
   static bool candidate = false;
   static uint8_t agreeCount = 0;
-  static uint32_t pressStartMs = 0;
-  static bool longFired = false;
 
   bool raw = digitalRead(Pins::ENCODER_SW) == LOW;
 
@@ -89,27 +86,12 @@ void Encoder::pollButton() {
   }
   bool pressed = (agreeCount >= 2) ? candidate : wasPressed;
 
-  uint32_t now = millis();
-  if (pressed && !wasPressed) {
-    pressStartMs = now;
-    longFired = false;
-  } else if (pressed && wasPressed && !longFired && now - pressStartMs >= ENCODER_LONG_PRESS_MS) {
-    longFired = true;
-    pendingLongClick = true;
-  } else if (!pressed && wasPressed && !longFired) {
-    pendingClick = true;  // short press, released before the long threshold
-  }
+  if (pressed && !wasPressed) pendingClick = true;
   wasPressed = pressed;
 }
 
 bool Encoder::takeClick() {
   bool c = pendingClick;
   pendingClick = false;
-  return c;
-}
-
-bool Encoder::takeLongClick() {
-  bool c = pendingLongClick;
-  pendingLongClick = false;
   return c;
 }

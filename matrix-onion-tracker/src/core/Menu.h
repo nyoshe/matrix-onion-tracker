@@ -7,9 +7,8 @@
 // highlighted item (or confirms the value and returns to the list).
 namespace Menu {
 // Feeds this frame's encoder input. Returns true while the menu should be
-// drawn instead of the active screen. longClick only matters inside the
-// WiFi item's password entry.
-bool update(int steps, bool click, bool longClick);
+// drawn instead of the active screen.
+bool update(int steps, bool click);
 
 // Draws the menu; call instead of the active screen's draw() while open.
 void draw(Display& display);

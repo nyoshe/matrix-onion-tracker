@@ -4,15 +4,18 @@
 // prices and .onion uptime over WiFi instead of listening to a mic.
 //
 // The two screens below still draw mock data (price/onion polling isn't
-// wired up yet), but the menu's WiFi item makes a real connection. See
-// README.md for the full command/menu reference.
+// wired up yet). WiFi connects to a saved network automatically, or falls
+// back to an access point with a web config portal to add one -- see
+// README.md for the full reference.
 
 #include "src/config.h"
+#include "src/core/ConfigPortal.h"
 #include "src/core/Encoder.h"
 #include "src/core/Matrix.h"
 #include "src/core/Menu.h"
 #include "src/core/Nav.h"
 #include "src/core/Net.h"
+#include "src/core/NetworkStore.h"
 #include "src/core/Screen.h"
 
 Display* display = nullptr;
@@ -21,10 +24,9 @@ float measuredRenderFps = 0;
 bool encoderDebug = false;
 
 // Serial-driven stand-ins for the encoder, for testing the menu without one
-// attached or in hand: '<'/'>' turn, 'c' clicks, 'C' long-clicks.
+// attached or in hand: '<'/'>' turn, 'c' clicks.
 int debugSteps = 0;
 bool debugClick = false;
-bool debugLongClick = false;
 
 void handleButton() {  // BOOT button: jumps straight to the next screen
   static bool wasPressed = false;
@@ -51,7 +53,6 @@ void handleSerial() {
     else if (c == '<') debugSteps -= 1;
     else if (c == '>') debugSteps += 1;
     else if (c == 'c') debugClick = true;
-    else if (c == 'C') debugLongClick = true;
     else if (c >= '0' && c <= '9' && (c - '0') < (int)Screens::count()) {
       Nav::selectScreen(c - '0');
       lastSwitchMs = millis();
@@ -77,7 +78,9 @@ void setup() {
 
   display = &Matrix::begin();
   Encoder::begin();
+  NetworkStore::begin();
   Net::begin();
+  ConfigPortal::begin();
 
   if (Screens::count() == 0) {
     Serial.println("No screens registered");
@@ -92,18 +95,17 @@ void loop() {
   handleButton();
   handleSerial();
 
+  Net::poll();
+  ConfigPortal::poll();
+
   Encoder::pollButton();
   int steps = Encoder::takeSteps() + debugSteps;
   bool click = Encoder::takeClick() || debugClick;
-  bool longClick = Encoder::takeLongClick() || debugLongClick;
   debugSteps = 0;
   debugClick = false;
-  debugLongClick = false;
-  if (encoderDebug && (steps || click || longClick)) {
-    Serial.printf("encoder steps=%d click=%d longClick=%d\n", steps, click, longClick);
-  }
+  if (encoderDebug && (steps || click)) Serial.printf("encoder steps=%d click=%d\n", steps, click);
 
-  bool menuOpen = Menu::update(steps, click, longClick);
+  bool menuOpen = Menu::update(steps, click);
   if (!menuOpen && AUTO_CYCLE_MS && millis() - lastSwitchMs >= AUTO_CYCLE_MS) {
     Nav::selectScreen(Nav::currentScreen() + 1);
     lastSwitchMs = millis();

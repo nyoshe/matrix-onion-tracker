@@ -54,8 +54,13 @@ constexpr uint32_t RENDER_FPS = 30;
 constexpr uint32_t AUTO_CYCLE_MS = 0;  // switch screen every N ms; 0 = off
 
 // ---- Menu (KY-040 rotary encoder) --------------------------------------------
-constexpr uint8_t MENU_BRIGHTNESS_STEP = 8;     // brightness change per detent
-constexpr uint32_t ENCODER_LONG_PRESS_MS = 600;  // held this long -> long click, not a short one
+constexpr uint8_t MENU_BRIGHTNESS_STEP = 8;  // brightness change per detent
 
 // ---- WiFi ---------------------------------------------------------------------
-constexpr uint32_t WIFI_CONNECT_TIMEOUT_MS = 15000;  // give up and report failure after this long
+constexpr uint32_t WIFI_PER_NETWORK_TIMEOUT_MS = 8000;  // before trying the next saved network
+constexpr int WIFI_MAX_SAVED_NETWORKS = 8;
+
+// Access point started when no saved network connects; the config portal
+// (src/core/ConfigPortal.*) is reachable there at 192.168.4.1.
+constexpr const char* WIFI_AP_SSID = "matrix-onion-tracker";
+constexpr const char* WIFI_AP_PASSWORD = "onion1234";  // WPA2 needs >=8 chars; change this
