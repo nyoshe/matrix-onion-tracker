@@ -14,7 +14,11 @@ struct Price {
 Price btc();
 Price monero();
 
-constexpr int kCandleCount = 16;  // fixed display width, whatever the raw candle count was
+// Fixed display width, whatever the raw candle count was. 64 matches the
+// panel's 64px width at 1px/candle; CoinGecko's keyless tier only ever
+// returns ~48-50 raw 30min candles for a day, so the thinnest ~16 of these
+// repeat their nearest raw candle rather than showing unique data.
+constexpr int kCandleCount = 64;
 
 struct Candle {
   float open = 0, high = 0, low = 0, close = 0;

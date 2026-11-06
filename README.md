@@ -85,11 +85,13 @@ SW, CLK and DT land on three consecutive rows of the left header (VN, 34, 35), s
 
 | # | Name | What it shows |
 |---|---|---|
-| 0 | BTC Chart | Full-page candlestick chart (last ~24h, bucketed to 16 candles) with symbol/price/24h change overlaid on top |
+| 0 | BTC Chart | Full-page candlestick chart (last ~24h, bucketed to 64 1px candles with no gap between them) with symbol/price/24h change scrolling on top |
 | 1 | XMR Chart | Same, for Monero |
 | 2 | Onion Status | Small list of .onion service labels with an up/down dot each (mock data -- onion-uptime polling isn't wired up yet) |
 
 **Prices and charts:** `src/core/PriceFeed` polls [CoinGecko's keyless public API](https://docs.coingecko.com/docs/keyless-public-api) on a background task pinned to core 0, so the blocking HTTPS requests never stall rendering on core 1 -- live price + 24h change every `PRICE_POLL_INTERVAL_MS` (60 s by default, one combined call for both coins), OHLC chart history every `PRICE_HISTORY_POLL_INTERVAL_MS` (5 min by default, one call per coin since CoinGecko's OHLC endpoint takes a single coin). A failed fetch retries after `PRICE_RETRY_DELAY_MS` (15 s) rather than waiting the full interval. All three are in `src/config.h`, sized around that tier's shared ~5 requests/min per IP. `BTC`/`XMR` default to tracking bitcoin and monero (hardcoded, not yet a config-page setting); CoinGecko's attribution requirement applies if you show this data publicly. The HTTPS client skips certificate validation (`setInsecure()`) rather than pinning a root CA that would need updating whenever CoinGecko rotates its cert chain -- the data is public and read-only, so that only risks a spoofed price, not a credential leak.
+
+Each candle is 1px wide with no gap to the next (`PriceFeed::kCandleCount`, `src/core/PriceFeed.h`, matches the panel's 64px width); the high-low shadow draws at quarter brightness under the full-brightness open-close body, and the price is yellow (the symbol and % change stay white/green/red). CoinGecko's keyless tier only ever returns ~48-50 raw 30min candles for a day, so the thinnest ~16 of the 64 repeat their nearest raw candle rather than showing unique data -- there's no keyless endpoint with finer granularity to fill that in for real.
 
 **Switching:** turn the KY-040 to move directly through the screens; press the board's **BOOT** button to go to the next one. Over serial (`make monitor`), send `n` for next, `p` for previous, `l` to list them, or `0`–`9` to pick one. Send `d` to print the measured render frame rate. To rotate through them automatically, set `AUTO_CYCLE_MS` in `src/config.h`.
 

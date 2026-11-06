@@ -45,3 +45,12 @@ inline uint16_t hsvColor(float h, float s, float v) {
 inline uint16_t hueColor(float h, float brightness = 1.0f) {
   return hsvColor(h, 1.0f, brightness);
 }
+
+// Scales an RGB565 colour's brightness by `factor` (0..1), e.g. for a dimmer wick.
+inline uint16_t dim565(uint16_t color, float factor) {
+  factor = clamp01(factor);
+  float r = ((color >> 11) & 0x1F) / 31.0f;
+  float g = ((color >> 5) & 0x3F) / 63.0f;
+  float b = (color & 0x1F) / 31.0f;
+  return rgb565((uint8_t)(r * factor * 255), (uint8_t)(g * factor * 255), (uint8_t)(b * factor * 255));
+}

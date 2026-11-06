@@ -24,19 +24,20 @@ void CandlestickScreen::draw(Display& display) {
 
     for (int i = 0; i < PriceFeed::kCandleCount; i++) {
       const PriceFeed::Candle& c = hist.candles[i];
-      int x = i * kCandleWidth + kCandleWidth / 2;
+      int x = i * kCandleWidth;  // zero gap: each candle fills its whole slot
       auto toY = [&](float v) {
         return kChartTop + (kChartHeight - 1) - (int)((v - lo) / range * (kChartHeight - 1));
       };
       int yHigh = toY(c.high), yLow = toY(c.low), yOpen = toY(c.open), yClose = toY(c.close);
       uint16_t color = c.close >= c.open ? levelColor(0.0f) : levelColor(1.0f);
 
-      display.drawFastVLine(x, min(yHigh, yLow), abs(yLow - yHigh) + 1, color);
+      // Shadow (high-low) at quarter brightness, drawn first so the body
+      // (open-close), at full brightness, overwrites it where they overlap.
+      display.fillRect(x, min(yHigh, yLow), kCandleWidth, abs(yLow - yHigh) + 1, dim565(color, 0.25f));
 
       int bodyTop = min(yOpen, yClose);
       int bodyHeight = max(abs(yClose - yOpen), 1);
-      int bodyWidth = max(kCandleWidth - 2, 1);
-      display.fillRect(x - bodyWidth / 2, bodyTop, bodyWidth, bodyHeight, color);
+      display.fillRect(x, bodyTop, kCandleWidth, bodyHeight, color);
     }
   }
 
@@ -69,6 +70,8 @@ void CandlestickScreen::draw(Display& display) {
   display.setTextColor(0xFFFF);
   display.print(symbol_);
   display.print(' ');
+
+  display.setTextColor(0xFFE0);  // yellow
   display.print(priceBuf);
   if (price.valid) {
     display.setTextColor(price.change24h >= 0 ? levelColor(0.0f) : levelColor(1.0f));
