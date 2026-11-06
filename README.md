@@ -7,9 +7,10 @@ minus the SparkFun Sound Detector -- this one will poll prices and onion
 uptime over WiFi instead of listening to a mic.
 
 **Status: partial.** WiFi connects to a saved network automatically, or
-starts an access point with a web config page to add one. The two screens
-still draw hardcoded mock values -- price and onion-uptime polling aren't
-wired up yet.
+starts an access point with a web config page to add one. BTC Chart and
+XMR Chart show real candlestick charts from CoinGecko; Onion Status
+still draws hardcoded mock values -- onion-uptime polling isn't wired up
+yet.
 
 ## Build environment
 
@@ -21,6 +22,8 @@ make monitor         # serial console at 115200 baud
 ```
 
 The ESP32 toolchains that arduino-cli downloads are prebuilt binaries for a normal Linux layout, so the flake wraps `arduino-cli` in an FHS environment. Without it they won't run on NixOS.
+
+The `Makefile`'s FQBN sets `PartitionScheme=huge_app`: a single 3 MB app partition instead of the default's two 1.25 MB OTA slots plus an unused 1.5 MB SPIFFS filesystem. This board is flashed over USB, not OTA, and `Preferences` (NVS) handles storage, not a filesystem, so neither of those is missed. If you ever do want OTA updates, switch back to a scheme with two app slots (e.g. `default`).
 
 ## Wiring
 
@@ -78,20 +81,23 @@ Power the matrix from its own 5 V supply rated for at least 2–4 A, and tie its
 
 SW, CLK and DT land on three consecutive rows of the left header (VN, 34, 35), so all three wires come off together. All three are input-only ADC1 pins with no internal pull resistor, so they rely on the KY-040 module's own onboard pull-ups (standard on these breakout boards).
 
-## Screens (currently mock data)
+## Screens
 
 | # | Name | What it shows |
 |---|---|---|
-| 0 | Crypto Ticker | Scrolling line of symbol/price pairs, green/red for up/down |
-| 1 | Onion Status | Small list of .onion service labels with an up/down dot each |
+| 0 | BTC Chart | Full-page candlestick chart (last ~24h, bucketed to 16 candles) with symbol/price/24h change overlaid on top |
+| 1 | XMR Chart | Same, for Monero |
+| 2 | Onion Status | Small list of .onion service labels with an up/down dot each (mock data -- onion-uptime polling isn't wired up yet) |
 
-**Switching:** press the board's **BOOT** button to go to the next screen. Over serial (`make monitor`), send `n` for next, `p` for previous, `l` to list them, or `0`–`9` to pick one. Send `d` to print the measured render frame rate. To rotate through them automatically, set `AUTO_CYCLE_MS` in `src/config.h`.
+**Prices and charts:** `src/core/PriceFeed` polls [CoinGecko's keyless public API](https://docs.coingecko.com/docs/keyless-public-api) on a background task pinned to core 0, so the blocking HTTPS requests never stall rendering on core 1 -- live price + 24h change every `PRICE_POLL_INTERVAL_MS` (60 s by default, one combined call for both coins), OHLC chart history every `PRICE_HISTORY_POLL_INTERVAL_MS` (5 min by default, one call per coin since CoinGecko's OHLC endpoint takes a single coin). A failed fetch retries after `PRICE_RETRY_DELAY_MS` (15 s) rather than waiting the full interval. All three are in `src/config.h`, sized around that tier's shared ~5 requests/min per IP. `BTC`/`XMR` default to tracking bitcoin and monero (hardcoded, not yet a config-page setting); CoinGecko's attribution requirement applies if you show this data publicly. The HTTPS client skips certificate validation (`setInsecure()`) rather than pinning a root CA that would need updating whenever CoinGecko rotates its cert chain -- the data is public and read-only, so that only risks a spoofed price, not a credential leak.
+
+**Switching:** turn the KY-040 to move directly through the screens; press the board's **BOOT** button to go to the next one. Over serial (`make monitor`), send `n` for next, `p` for previous, `l` to list them, or `0`–`9` to pick one. Send `d` to print the measured render frame rate. To rotate through them automatically, set `AUTO_CYCLE_MS` in `src/config.h`.
 
 ## Menu (KY-040)
 
-Press the encoder to open a small menu over whatever screen is showing: **Screen**, **Brightness**, **Back**. Turn to move the highlight, press to open that item, turn to change its value, press again to confirm and return to the list. Selecting **Back** (or pressing while it's highlighted) closes the menu and returns to the active screen. State lives in `src/core/Menu.cpp`; the encoder itself is read in `src/core/Encoder.cpp`.
+While a screen is showing, turning the encoder switches directly between screens. Press it to open a small menu instead: **Screen**, **Brightness**, **Back**. Turn to move the highlight, press to open that item, turn to change its value, press again to confirm and return to the list. Selecting **Back** (or pressing while it's highlighted) closes the menu and returns to the active screen. State lives in `src/core/Menu.cpp`; the encoder itself is read in `src/core/Encoder.cpp`.
 
-Without an encoder in hand, drive the menu over serial (`make monitor`): `<`/`>` turn, `c` clicks.
+Without an encoder in hand, drive it over serial (`make monitor`): `<`/`>` turn, `c` clicks.
 
 ## WiFi
 
@@ -126,17 +132,20 @@ matrix-onion-tracker/
     │   ├── Menu.{h,cpp}                   on-screen menu state machine + drawing
     │   ├── NetworkStore.{h,cpp}           persisted list of saved WiFi networks (NVS)
     │   ├── Net.{h,cpp}                    tries saved networks, falls back to an AP
-    │   └── ConfigPortal.{h,cpp}           web page to add/remove networks + captive-portal DNS/redirect
+    │   ├── ConfigPortal.{h,cpp}           web page to add/remove networks + captive-portal DNS/redirect
+    │   └── PriceFeed.{h,cpp}              polls CoinGecko for BTC/XMR price + OHLC on a background task
     └── screens/                           one file per screen
-        ├── CryptoTicker.cpp               mock price ticker
-        └── OnionStatus.cpp                mock onion-service status list
+        ├── CandlestickScreen.{h,cpp}       shared chart+overlay draw logic
+        ├── BtcChart.cpp                    trivial subclass fixing the coin to bitcoin
+        ├── XmrChart.cpp                    same, for monero
+        └── OnionStatus.cpp                 mock onion-service status list
 ```
 
 ## What's not implemented yet
 
-- Fetching real prices from an exchange/price API
 - Checking real .onion link availability (needs a Tor-capable proxy somewhere the ESP32 can reach, since the chip itself can't speak the Tor protocol)
-- Any kind of polling, caching or error/timeout handling for either of the above
+- Any kind of polling, caching or error/timeout handling for onion-checking once it exists
+- Choosing which coins to track (BTC/XMR are hardcoded in `PRICE_API_URL`, not yet a config-page setting)
 - On-screen status once connected (STA IP) -- serial-only for now; AP mode and connecting are shown
 - Any config page content beyond WiFi networks (the planned currencies/sites settings)
 

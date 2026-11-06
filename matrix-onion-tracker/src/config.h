@@ -64,3 +64,11 @@ constexpr int WIFI_MAX_SAVED_NETWORKS = 8;
 // (src/core/ConfigPortal.*) is reachable there at 192.168.4.1. Open (no
 // password) so it's easy to get to for setup.
 constexpr const char* WIFI_AP_SSID = "config";
+
+// ---- Price feed -----------------------------------------------------------------
+// CoinGecko's keyless tier shares ~5 requests/min per IP; this budgets for it.
+constexpr uint32_t PRICE_POLL_INTERVAL_MS = 60000;           // one combined call, both coins
+constexpr uint32_t PRICE_HISTORY_POLL_INTERVAL_MS = 300000;  // one call per coin, so less often
+constexpr uint32_t PRICE_RETRY_DELAY_MS = 15000;             // after a failed fetch, not the full interval
+constexpr const char* PRICE_API_URL =
+    "https://api.coingecko.com/api/v3/simple/price?ids=bitcoin,monero&vs_currencies=usd&include_24hr_change=true";

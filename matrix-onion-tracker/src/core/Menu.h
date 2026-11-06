@@ -2,9 +2,10 @@
 
 #include "Matrix.h"
 
-// On-screen menu driven by the KY-040: a press opens it, turning moves the
-// highlight (or edits the highlighted item's value), and a press picks the
-// highlighted item (or confirms the value and returns to the list).
+// On-screen menu driven by the KY-040. While closed, turning switches the
+// active screen directly; a press opens the menu instead, where turning
+// moves the highlight (or edits the highlighted item's value) and a press
+// picks the highlighted item (or confirms the value and returns to the list).
 namespace Menu {
 // Feeds this frame's encoder input. Returns true while the menu should be
 // drawn instead of the active screen.

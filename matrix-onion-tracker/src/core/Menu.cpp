@@ -64,6 +64,7 @@ void valueText(Kind kind, char* out, size_t outLen) {
 bool Menu::update(int steps, bool click) {
   switch (state) {
     case State::kClosed:
+      if (steps) Nav::selectScreen(Nav::currentScreen() + steps);
       if (click) {
         state = State::kBrowsing;
         selected = 0;

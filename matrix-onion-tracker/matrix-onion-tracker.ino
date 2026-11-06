@@ -3,10 +3,10 @@
 // led-matrix-audio-visualizer, minus the sound detector -- this one polls
 // prices and .onion uptime over WiFi instead of listening to a mic.
 //
-// The two screens below still draw mock data (price/onion polling isn't
-// wired up yet). WiFi connects to a saved network automatically, or falls
-// back to an access point with a web config portal to add one -- see
-// README.md for the full reference.
+// BTC Chart and XMR Chart pull real candlestick data; Onion Status still
+// draws mock data (onion-uptime polling isn't wired up yet). WiFi connects
+// to a saved network automatically, or falls back to an access point with
+// a web config portal to add one -- see README.md for the full reference.
 
 #include "src/config.h"
 #include "src/core/ConfigPortal.h"
@@ -16,6 +16,7 @@
 #include "src/core/Nav.h"
 #include "src/core/Net.h"
 #include "src/core/NetworkStore.h"
+#include "src/core/PriceFeed.h"
 #include "src/core/Screen.h"
 
 Display* display = nullptr;
@@ -81,6 +82,7 @@ void setup() {
   NetworkStore::begin();
   Net::begin();
   ConfigPortal::begin();
+  PriceFeed::begin();
 
   if (Screens::count() == 0) {
     Serial.println("No screens registered");
