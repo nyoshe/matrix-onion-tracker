@@ -2,6 +2,7 @@
 
 #include <Arduino.h>
 #include <WiFi.h>
+#include <stdio.h>
 #include <string.h>
 
 #include "../config.h"
@@ -19,6 +20,10 @@ uint32_t attemptStartMs = 0;
 
 char connectedSsidBuf[33] = "";
 char staIpBuf[16] = "";
+
+// softAP() below is called with no explicit IP config, which defaults to
+// this. Shared with configUrl() so the two can't drift apart.
+constexpr const char* kApIp = "192.168.4.1";
 
 void copyTruncated(char* dst, size_t dstLen, const char* src) {
   strncpy(dst, src, dstLen - 1);
@@ -92,6 +97,12 @@ const char* Net::staIp() { return staIpBuf; }
 
 bool Net::isApActive() { return apUp; }
 
+const char* Net::configUrl() {
+  static char buf[24];
+  snprintf(buf, sizeof(buf), "HTTP://%s/", isConnected() ? staIpBuf : kApIp);
+  return buf;
+}
+
 void Net::draw(Display& display) {
   display.setTextSize(1);
   display.setTextWrap(false);
@@ -104,7 +115,7 @@ void Net::draw(Display& display) {
     display.print(WIFI_AP_SSID);
     display.setTextColor(hueColor(0.5f));  // cyan: the actionable step
     display.setCursor(1, 22 + FONT_ASCENT);
-    display.print("192.168.4.1");
+    display.print(kApIp);
   } else {
     display.setTextColor(0xFFFF);
     display.setCursor(1, 8 + FONT_ASCENT);

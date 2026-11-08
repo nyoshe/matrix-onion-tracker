@@ -7,10 +7,10 @@ minus the SparkFun Sound Detector -- this one will poll prices and onion
 uptime over WiFi instead of listening to a mic.
 
 **Status: partial.** WiFi connects to a saved network automatically, or
-starts an access point with a web config page to add one. BTC Chart and
-XMR Chart show real candlestick charts from CoinGecko; Onion Status
-still draws hardcoded mock values -- onion-uptime polling isn't wired up
-yet.
+starts an access point with a web config page to add one; that same page
+also manages which coins to chart. Each tracked coin gets a real candlestick
+chart from CoinGecko; Onion Status still draws hardcoded mock values --
+onion-uptime polling isn't wired up yet.
 
 ## Build environment
 
@@ -85,11 +85,14 @@ SW, CLK and DT land on three consecutive rows of the left header (VN, 34, 35), s
 
 | # | Name | What it shows |
 |---|---|---|
-| 0 | BTC Chart | Full-page candlestick chart (last ~24h, bucketed to 64 1px candles with no gap between them) with symbol/price/24h change scrolling on top |
-| 1 | XMR Chart | Same, for Monero |
-| 2 | Onion Status | Small list of .onion service labels with an up/down dot each (mock data -- onion-uptime polling isn't wired up yet) |
+| 0.. | *(coin)* Chart | One per tracked coin (up to `MAX_TRACKED_COINS`, 6 by default). Full-page candlestick chart (last ~24h, bucketed to 64 1px candles with no gap between them) with symbol/price/24h change scrolling on top. Bitcoin and Monero are tracked by default; add/remove coins from the config page |
+| *last* | Onion Status | Small list of .onion service labels with an up/down dot each (mock data -- onion-uptime polling isn't wired up yet) |
 
-**Prices and charts:** `src/core/PriceFeed` polls [CoinGecko's keyless public API](https://docs.coingecko.com/docs/keyless-public-api) on a background task pinned to core 0, so the blocking HTTPS requests never stall rendering on core 1 -- live price + 24h change every `PRICE_POLL_INTERVAL_MS` (60 s by default, one combined call for both coins), OHLC chart history every `PRICE_HISTORY_POLL_INTERVAL_MS` (5 min by default, one call per coin since CoinGecko's OHLC endpoint takes a single coin). A failed fetch retries after `PRICE_RETRY_DELAY_MS` (15 s) rather than waiting the full interval. All three are in `src/config.h`, sized around that tier's shared ~5 requests/min per IP. `BTC`/`XMR` default to tracking bitcoin and monero (hardcoded, not yet a config-page setting); CoinGecko's attribution requirement applies if you show this data publicly. The HTTPS client skips certificate validation (`setInsecure()`) rather than pinning a root CA that would need updating whenever CoinGecko rotates its cert chain -- the data is public and read-only, so that only risks a spoofed price, not a credential leak.
+A QR code for the config page, its URL as text, and the currently joined network live under the menu's **Network** item instead of in this rotation -- see **Menu** below.
+
+**Tracked coins:** managed from the config page (see **WiFi** below), backed by `src/core/CoinStore` (NVS). Each entry is a [CoinGecko](https://www.coingecko.com) id (the slug in a coin's `coingecko.com/en/coins/<id>` URL, e.g. `ethereum`) plus a short display symbol; leaving the symbol blank uppercases the id instead. A chart slot that has no coin in it (list shorter than `MAX_TRACKED_COINS`) just doesn't appear in the rotation. An id CoinGecko doesn't recognize (typo) shows a warning next to it on the config page instead of silently breaking the others' updates.
+
+**Prices and charts:** `src/core/PriceFeed` polls [CoinGecko's keyless public API](https://docs.coingecko.com/docs/keyless-public-api) on a background task pinned to core 0, so the blocking HTTPS requests never stall rendering on core 1 -- live price + 24h change every `PRICE_POLL_INTERVAL_MS` (60 s by default, one combined call covering every tracked coin), OHLC chart history every `PRICE_HISTORY_POLL_INTERVAL_MS` per coin (5 min by default), round-robining one coin's history request at a time rather than firing one per coin back to back. All CoinGecko calls (price and history) are serialized at least `PRICE_MIN_CALL_GAP_MS` apart, and a failed fetch retries after `PRICE_RETRY_DELAY_MS` (15 s) rather than waiting the full interval -- all in `src/config.h`, sized around that tier's shared ~5 requests/min per IP. CoinGecko's attribution requirement applies if you show this data publicly. The HTTPS client skips certificate validation (`setInsecure()`) rather than pinning a root CA that would need updating whenever CoinGecko rotates its cert chain -- the data is public and read-only, so that only risks a spoofed price, not a credential leak.
 
 Each candle is 1px wide with no gap to the next (`PriceFeed::kCandleCount`, `src/core/PriceFeed.h`, matches the panel's 64px width); the high-low shadow draws at quarter brightness under the full-brightness open-close body, and the price is yellow (the symbol and % change stay white/green/red). CoinGecko's keyless tier only ever returns ~48-50 raw 30min candles for a day, so the thinnest ~16 of the 64 repeat their nearest raw candle rather than showing unique data -- there's no keyless endpoint with finer granularity to fill that in for real.
 
@@ -97,7 +100,7 @@ Each candle is 1px wide with no gap to the next (`PriceFeed::kCandleCount`, `src
 
 ## Menu (KY-040)
 
-While a screen is showing, turning the encoder switches directly between screens. Press it to open a small menu instead: **Screen**, **Brightness**, **Back**. Turn to move the highlight, press to open that item, turn to change its value, press again to confirm and return to the list. Selecting **Back** (or pressing while it's highlighted) closes the menu and returns to the active screen. State lives in `src/core/Menu.cpp`; the encoder itself is read in `src/core/Encoder.cpp`.
+While a screen is showing, turning the encoder switches directly between screens. Press it to open a small menu instead: **Screen**, **Brightness**, **Network**, **Back**. Turn to move the highlight, press to open that item. **Screen** and **Brightness** are editable values -- turn to change, press again to confirm and return to the list. **Network** is a view, not a value: it shows a QR code for the config page's current URL (`Net::configUrl()`), the URL as scrolling text, and whichever network reaches it -- the AP's SSID before a network is joined, the joined network's name after. Turning does nothing there; press to return to the list. Selecting **Back** (or pressing while it's highlighted) closes the menu and returns to the active screen. State lives in `src/core/Menu.cpp`; the Network view's drawing is in `src/core/NetworkView.cpp` (not a `Screen`, so it still works before any screen is dispatched -- see **WiFi** below); the encoder itself is read in `src/core/Encoder.cpp`.
 
 Without an encoder in hand, drive it over serial (`make monitor`): `<`/`>` turn, `c` clicks.
 
@@ -109,13 +112,13 @@ At boot, each saved network (`src/core/NetworkStore`) is tried in turn (`WIFI_PE
 - **Password:** none -- it's an open network, for easy access during setup
 - **Config page:** connect to that AP and visit `http://192.168.4.1` (shown on the panel too)
 
-The panel's AP-mode screen is drawn in `Net::draw()` (`src/core/Net.cpp`); if `WIFI_AP_SSID` is long, it can run past the panel's 64px width at the current font, since it's static text rather than a scrolling ticker.
+The panel's AP-mode screen is drawn in `Net::draw()` (`src/core/Net.cpp`); if `WIFI_AP_SSID` is long, it can run past the panel's 64px width at the current font, since it's static text rather than a scrolling ticker. The menu's **Network** item (see **Menu** above) works in AP mode and once connected, since the menu draws over whatever `loop()` would otherwise show; that makes it the easiest way to get the config page's URL onto a phone via its QR code. During the first connect attempts at boot, before the AP comes up, it just shows **Connecting...** with no QR code yet, same as `Net::draw()`.
 
 While the AP is active, `ConfigPortal` also runs a captive-portal DNS server (resolves every hostname to itself) and redirects every unmatched HTTP path to the config page. That's what makes phones and laptops pop a "sign in to network" prompt straight to it on their own, the same way hotel/airport WiFi does, instead of silently refusing to use a network with no real internet. It only covers plain HTTP connectivity checks -- a device whose check happens to go over HTTPS won't be fooled, so the prompt isn't guaranteed on every OS/version, but joining the AP and opening a browser to `192.168.4.1` always works as the fallback.
 
-The page lists saved networks with a **Delete** button each, and a form to add one by SSID and password. Adding a network saves it and immediately tries connecting to it, while keeping the access point up (dual AP+STA mode) so the page stays reachable if it fails. On success, the access point drops and the page is reachable at the new network's IP instead (printed over serial; the panel doesn't show the STA IP once connected).
+The page lists saved networks with a **Delete** button each, and a form to add one by SSID and password. Adding a network saves it and immediately tries connecting to it, while keeping the access point up (dual AP+STA mode) so the page stays reachable if it fails. On success, the access point drops and the page is reachable at the new network's IP instead (printed over serial, and shown on the panel via the menu's **Network** item).
 
-This same page is meant to grow into the place for other settings later (tracked currencies/sites), not just WiFi -- see `src/core/ConfigPortal.cpp`.
+The same page also lists tracked coins with a **Delete** button each, and a form to add one by CoinGecko id (optionally with a display symbol) -- see **Tracked coins** above. This is meant to keep growing with other settings later (tracked .onion sites), not just WiFi and coins -- see `src/core/ConfigPortal.cpp`.
 
 ## Project layout
 
@@ -132,14 +135,16 @@ matrix-onion-tracker/
     │   ├── Nav.{h,cpp}                    which screen is active (shared by sketch + menu)
     │   ├── Encoder.{h,cpp}                KY-040 quadrature + button reading
     │   ├── Menu.{h,cpp}                   on-screen menu state machine + drawing
+    │   ├── NetworkView.{h,cpp}             menu's "Network" item: QR code + link text for the config page, and the joined network
     │   ├── NetworkStore.{h,cpp}           persisted list of saved WiFi networks (NVS)
     │   ├── Net.{h,cpp}                    tries saved networks, falls back to an AP
-    │   ├── ConfigPortal.{h,cpp}           web page to add/remove networks + captive-portal DNS/redirect
-    │   └── PriceFeed.{h,cpp}              polls CoinGecko for BTC/XMR price + OHLC on a background task
+    │   ├── CoinStore.{h,cpp}              persisted list of tracked coins (NVS)
+    │   ├── ConfigPortal.{h,cpp}           web page to add/remove networks/coins + captive-portal DNS/redirect
+    │   ├── PriceFeed.{h,cpp}              polls CoinGecko for each tracked coin's price + OHLC on a background task
+    │   └── QrEncode.{h,c}                 vendored QR encoder (ricmoo/qrcode) -- the esp32 core ships its own qrcode.h on the same include path, so a library install of it would silently lose that name clash
     └── screens/                           one file per screen
-        ├── CandlestickScreen.{h,cpp}       shared chart+overlay draw logic
-        ├── BtcChart.cpp                    trivial subclass fixing the coin to bitcoin
-        ├── XmrChart.cpp                    same, for monero
+        ├── CandlestickScreen.{h,cpp}       chart+overlay draw logic for one CoinStore slot
+        ├── CoinChart.cpp                   registers MAX_TRACKED_COINS chart slots
         └── OnionStatus.cpp                 mock onion-service status list
 ```
 
@@ -147,9 +152,7 @@ matrix-onion-tracker/
 
 - Checking real .onion link availability (needs a Tor-capable proxy somewhere the ESP32 can reach, since the chip itself can't speak the Tor protocol)
 - Any kind of polling, caching or error/timeout handling for onion-checking once it exists
-- Choosing which coins to track (BTC/XMR are hardcoded in `PRICE_API_URL`, not yet a config-page setting)
-- On-screen status once connected (STA IP) -- serial-only for now; AP mode and connecting are shown
-- Any config page content beyond WiFi networks (the planned currencies/sites settings)
+- Any config page content beyond WiFi networks and tracked coins (the planned .onion sites setting)
 
 ## Adding a screen
 

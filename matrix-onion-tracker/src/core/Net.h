@@ -20,6 +20,12 @@ bool isApActive();
 // through the rest of the list on failure before falling back to the AP.
 void tryIndex(int i);
 
+// "HTTP://<ip>/" for whichever address currently reaches the config portal
+// -- the AP's fixed IP before a network is joined, the joined network's
+// address afterward. Uppercase scheme (browsers don't care) so the whole
+// string stays in the QR code's smaller alphanumeric charset.
+const char* configUrl();
+
 // Draws connecting/AP-mode status; call instead of the active screen
 // whenever !isConnected().
 void draw(Display& display);

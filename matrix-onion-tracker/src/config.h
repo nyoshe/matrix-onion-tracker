@@ -67,10 +67,15 @@ constexpr int WIFI_MAX_SAVED_NETWORKS = 8;
 // password) so it's easy to get to for setup.
 constexpr const char* WIFI_AP_SSID = "config";
 
+// ---- Tracked coins ------------------------------------------------------------
+// Persisted via CoinStore, added/removed from the config portal. Fixed cap so
+// screens/registry/NVS storage can all use plain static arrays.
+constexpr int MAX_TRACKED_COINS = 6;
+
 // ---- Price feed -----------------------------------------------------------------
 // CoinGecko's keyless tier shares ~5 requests/min per IP; this budgets for it.
-constexpr uint32_t PRICE_POLL_INTERVAL_MS = 60000;           // one combined call, both coins
+constexpr uint32_t PRICE_POLL_INTERVAL_MS = 60000;           // one combined call, every tracked coin
 constexpr uint32_t PRICE_HISTORY_POLL_INTERVAL_MS = 300000;  // one call per coin, so less often
 constexpr uint32_t PRICE_RETRY_DELAY_MS = 15000;             // after a failed fetch, not the full interval
-constexpr const char* PRICE_API_URL =
-    "https://api.coingecko.com/api/v3/simple/price?ids=bitcoin,monero&vs_currencies=usd&include_24hr_change=true";
+constexpr uint32_t PRICE_MIN_CALL_GAP_MS = 13000;  // serializes price+history calls under the rate limit
+constexpr const char* PRICE_API_BASE = "https://api.coingecko.com/api/v3/simple/price";

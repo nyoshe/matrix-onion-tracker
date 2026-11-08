@@ -3,12 +3,14 @@
 // led-matrix-audio-visualizer, minus the sound detector -- this one polls
 // prices and .onion uptime over WiFi instead of listening to a mic.
 //
-// BTC Chart and XMR Chart pull real candlestick data; Onion Status still
-// draws mock data (onion-uptime polling isn't wired up yet). WiFi connects
-// to a saved network automatically, or falls back to an access point with
-// a web config portal to add one -- see README.md for the full reference.
+// Each tracked coin (config portal, defaults to BTC/XMR) gets a real
+// candlestick chart; Onion Status still draws mock data (onion-uptime
+// polling isn't wired up yet). WiFi connects to a saved network
+// automatically, or falls back to an access point with a web config portal
+// to add one -- see README.md for the full reference.
 
 #include "src/config.h"
+#include "src/core/CoinStore.h"
 #include "src/core/ConfigPortal.h"
 #include "src/core/Encoder.h"
 #include "src/core/Matrix.h"
@@ -81,6 +83,7 @@ void setup() {
   Encoder::begin();
   NetworkStore::begin();
   Net::begin();
+  CoinStore::begin();
   ConfigPortal::begin();
   PriceFeed::begin();
 
@@ -112,6 +115,10 @@ void loop() {
     Nav::selectScreen(Nav::currentScreen() + 1);
     lastSwitchMs = millis();
   }
+
+  // Deleting a tracked coin can shrink Screens::count() out from under the
+  // currently active screen (e.g. its chart slot), so reclamp before using it.
+  if (Nav::currentScreen() >= (int)Screens::count()) Nav::selectScreen(0);
 
   display->fillScreen(0);
   if (menuOpen) Menu::draw(*display);

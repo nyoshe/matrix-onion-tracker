@@ -5,11 +5,12 @@
 #include "../config.h"
 #include "Color.h"
 #include "Nav.h"
+#include "NetworkView.h"
 #include "Screen.h"
 
 namespace {
 
-enum class Kind { kScreen, kBrightness, kBack };
+enum class Kind { kScreen, kBrightness, kNetwork, kBack };
 struct Item {
   const char* label;
   Kind kind;
@@ -17,10 +18,11 @@ struct Item {
 constexpr Item kItems[] = {
     {"Screen", Kind::kScreen},
     {"Brightness", Kind::kBrightness},
+    {"Network", Kind::kNetwork},
     {"Back", Kind::kBack},
 };
 constexpr int kItemCount = sizeof(kItems) / sizeof(kItems[0]);
-constexpr int kRowHeight = 10;
+constexpr int kRowHeight = 8;  // 4 items * 10 would run past the panel's 32px height
 
 enum class State { kClosed, kBrowsing, kEditing };
 State state = State::kClosed;
@@ -40,6 +42,8 @@ void applyStep(Kind kind, int steps) {
       Matrix::setBrightness(
           (uint8_t)clampInt((int)Matrix::brightness() + steps * MENU_BRIGHTNESS_STEP, 0, 255));
       break;
+    case Kind::kNetwork:  // a view, not an editable value; turning does nothing
+      break;
     case Kind::kBack:
       break;
   }
@@ -53,6 +57,7 @@ void valueText(Kind kind, char* out, size_t outLen) {
     case Kind::kBrightness:
       snprintf(out, outLen, "%u", Matrix::brightness());
       break;
+    case Kind::kNetwork:  // drawn separately by NetworkView::draw(), not via this
     case Kind::kBack:
       out[0] = '\0';
       break;
@@ -73,7 +78,15 @@ bool Menu::update(int steps, bool click) {
 
     case State::kBrowsing:
       if (steps) selected = wrapIndex(selected + steps, kItemCount);
-      if (click) state = kItems[selected].kind == Kind::kBack ? State::kClosed : State::kEditing;
+      if (click) {
+        Kind kind = kItems[selected].kind;
+        if (kind == Kind::kBack) {
+          state = State::kClosed;
+        } else {
+          state = State::kEditing;
+          if (kind == Kind::kNetwork) NetworkView::reset();
+        }
+      }
       break;
 
     case State::kEditing:
@@ -89,6 +102,10 @@ void Menu::draw(Display& display) {
   display.setTextWrap(false);
 
   if (state == State::kEditing) {
+    if (kItems[selected].kind == Kind::kNetwork) {
+      NetworkView::draw(display);
+      return;
+    }
     char value[24];
     valueText(kItems[selected].kind, value, sizeof(value));
     display.setTextColor(0xFFFF);

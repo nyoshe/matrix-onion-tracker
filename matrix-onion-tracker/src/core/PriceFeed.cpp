@@ -7,26 +7,51 @@
 #include <string.h>
 
 #include "../config.h"
+#include "CoinStore.h"
 #include "Net.h"
 
 namespace {
 
+struct Entry {
+  char id[CoinStore::kIdLen] = "";
+  PriceFeed::Price price;
+  PriceFeed::History history;
+  bool known = true;
+  uint32_t nextHistoryMs = 0;
+};
+
+// nextHistoryMs is core0-only (taskFn); everything else crosses to core1
+// through the accessors below, guarded by mutex.
 SemaphoreHandle_t mutex;
-PriceFeed::Price btcPrice;
-PriceFeed::Price xmrPrice;
-PriceFeed::History btcHist;
-PriceFeed::History xmrHist;
+Entry entries[MAX_TRACKED_COINS];
+int entryCount = 0;
 
-void applyPrice(PriceFeed::Price& slot, double usd, double change24h) {
-  xSemaphoreTake(mutex, portMAX_DELAY);
-  slot = {true, usd, change24h};
-  xSemaphoreGive(mutex);
-}
+// Pulls CoinStore's current list into `entries`, keeping each coin's
+// existing price/history by id rather than slot position, so a mid-list
+// delete doesn't relabel another coin's data until that coin's own next
+// fetch. New ids start due for an immediate history fetch.
+void syncEntries() {
+  CoinStore::Snapshot snap = CoinStore::snapshot();
+  static Entry fresh[MAX_TRACKED_COINS];  // off taskFn's stack; only this fn touches it
+  for (int i = 0; i < snap.count; i++) {
+    int old = -1;
+    for (int j = 0; j < entryCount; j++) {
+      if (strcmp(entries[j].id, snap.entries[i].id) == 0) {
+        old = j;
+        break;
+      }
+    }
+    if (old >= 0) {
+      fresh[i] = entries[old];
+    } else {
+      fresh[i] = Entry{};
+      strncpy(fresh[i].id, snap.entries[i].id, sizeof(fresh[i].id) - 1);
+    }
+  }
 
-void applyHistory(PriceFeed::History& slot, const PriceFeed::Candle* candles) {
   xSemaphoreTake(mutex, portMAX_DELAY);
-  slot.valid = true;
-  memcpy(slot.candles, candles, sizeof(slot.candles));
+  entryCount = snap.count;
+  memcpy(entries, fresh, sizeof(fresh));
   xSemaphoreGive(mutex);
 }
 
@@ -63,23 +88,35 @@ bool httpGetJson(const String& url, JsonDocument& doc) {
   return true;
 }
 
+// One combined call for every tracked coin's price. Each coin's result is
+// applied independently, so one bad id (e.g. a typo) doesn't stop the rest
+// from updating, and the whole call only counts as failed (for retry
+// purposes) if the request itself failed.
 bool fetchPrices() {
-  JsonDocument doc;
-  if (!httpGetJson(PRICE_API_URL, doc)) return false;
+  int n = entryCount;
+  if (n == 0) return true;
 
-  double btcUsd = doc["bitcoin"]["usd"] | 0.0;
-  double btcChange = doc["bitcoin"]["usd_24h_change"] | 0.0;
-  double xmrUsd = doc["monero"]["usd"] | 0.0;
-  double xmrChange = doc["monero"]["usd_24h_change"] | 0.0;
-  if (btcUsd <= 0 || xmrUsd <= 0) {
-    Serial.println("PriceFeed: missing price in response");
-    return false;
+  String ids;
+  for (int i = 0; i < n; i++) {
+    if (i) ids += ",";
+    ids += entries[i].id;
   }
+  String url = String(PRICE_API_BASE) + "?ids=" + ids + "&vs_currencies=usd&include_24hr_change=true";
 
-  applyPrice(btcPrice, btcUsd, btcChange);
-  applyPrice(xmrPrice, xmrUsd, xmrChange);
-  Serial.printf("PriceFeed: BTC $%.2f (%+.1f%%), XMR $%.2f (%+.1f%%)\n", btcUsd, btcChange, xmrUsd,
-                xmrChange);
+  JsonDocument doc;
+  if (!httpGetJson(url, doc)) return false;
+
+  for (int i = 0; i < n; i++) {
+    JsonVariant coin = doc[entries[i].id];
+    double usd = coin["usd"] | 0.0;
+    bool ok = usd > 0;
+
+    xSemaphoreTake(mutex, portMAX_DELAY);
+    entries[i].known = ok;
+    if (ok) entries[i].price = {true, usd, coin["usd_24h_change"] | 0.0};
+    xSemaphoreGive(mutex);
+  }
+  Serial.printf("PriceFeed: priced %d coin(s)\n", n);
   return true;
 }
 
@@ -105,8 +142,8 @@ void aggregate(JsonArray raw, PriceFeed::Candle* out) {
   }
 }
 
-bool fetchHistory(const char* coinId, PriceFeed::History& slot) {
-  String url = String("https://api.coingecko.com/api/v3/coins/") + coinId +
+bool fetchHistory(int i) {
+  String url = String("https://api.coingecko.com/api/v3/coins/") + entries[i].id +
                "/ohlc?vs_currency=usd&days=1";
   JsonDocument doc;
   if (!httpGetJson(url, doc)) return false;
@@ -114,40 +151,47 @@ bool fetchHistory(const char* coinId, PriceFeed::History& slot) {
   JsonArray raw = doc.as<JsonArray>();
   int n = raw.size();
   if (n == 0) {
-    Serial.printf("PriceFeed: no OHLC data for %s\n", coinId);
+    Serial.printf("PriceFeed: no OHLC data for %s\n", entries[i].id);
     return false;
   }
 
   PriceFeed::Candle candles[PriceFeed::kCandleCount];
   aggregate(raw, candles);
-  applyHistory(slot, candles);
 
-  float lo = candles[0].low, hi = candles[0].high;
-  for (int i = 1; i < PriceFeed::kCandleCount; i++) {
-    lo = min(lo, candles[i].low);
-    hi = max(hi, candles[i].high);
-  }
-  Serial.printf("PriceFeed: %s OHLC %d raw candles, lo %.2f hi %.2f\n", coinId, n, lo, hi);
+  xSemaphoreTake(mutex, portMAX_DELAY);
+  entries[i].history.valid = true;
+  memcpy(entries[i].history.candles, candles, sizeof(candles));
+  xSemaphoreGive(mutex);
+
+  Serial.printf("PriceFeed: %s OHLC %d raw candles\n", entries[i].id, n);
   return true;
 }
 
 void taskFn(void*) {
   uint32_t nextPriceMs = 0;
-  uint32_t nextHistoryMs = 0;
+  uint32_t nextCallMs = 0;  // serializes price + history calls under the rate limit
+  int historyTurn = 0;      // round-robins which coin's history is due next
   for (;;) {
-    if (Net::isConnected()) {
-      uint32_t now = millis();
+    syncEntries();
+    uint32_t now = millis();
+
+    if (Net::isConnected() && now >= nextCallMs) {
       if (now >= nextPriceMs) {
         bool ok = fetchPrices();
         nextPriceMs = now + (ok ? PRICE_POLL_INTERVAL_MS : PRICE_RETRY_DELAY_MS);
-      }
-      if (now >= nextHistoryMs) {
-        bool ok = fetchHistory("bitcoin", btcHist);
-        ok = fetchHistory("monero", xmrHist) && ok;
-        nextHistoryMs = now + (ok ? PRICE_HISTORY_POLL_INTERVAL_MS : PRICE_RETRY_DELAY_MS);
+        nextCallMs = now + PRICE_MIN_CALL_GAP_MS;
+      } else if (entryCount > 0) {
+        historyTurn %= entryCount;
+        int i = historyTurn;
+        if (now >= entries[i].nextHistoryMs) {
+          bool ok = fetchHistory(i);
+          entries[i].nextHistoryMs = now + (ok ? PRICE_HISTORY_POLL_INTERVAL_MS : PRICE_RETRY_DELAY_MS);
+          nextCallMs = now + PRICE_MIN_CALL_GAP_MS;
+        }
+        historyTurn++;
       }
     }
-    vTaskDelay(pdMS_TO_TICKS(1000));  // check often so a fresh connection fetches right away
+    vTaskDelay(pdMS_TO_TICKS(1000));  // check often so a fresh connection/new coin fetches right away
   }
 }
 
@@ -158,30 +202,41 @@ void PriceFeed::begin() {
   xTaskCreatePinnedToCore(taskFn, "PriceFeed", 12288, nullptr, 1, nullptr, 0);
 }
 
-PriceFeed::Price PriceFeed::btc() {
+PriceFeed::Price PriceFeed::price(const char* id) {
   xSemaphoreTake(mutex, portMAX_DELAY);
-  Price p = btcPrice;
+  Price p;
+  for (int i = 0; i < entryCount; i++) {
+    if (strcmp(entries[i].id, id) == 0) {
+      p = entries[i].price;
+      break;
+    }
+  }
   xSemaphoreGive(mutex);
   return p;
 }
 
-PriceFeed::Price PriceFeed::monero() {
+bool PriceFeed::known(const char* id) {
   xSemaphoreTake(mutex, portMAX_DELAY);
-  Price p = xmrPrice;
+  bool k = true;
+  for (int i = 0; i < entryCount; i++) {
+    if (strcmp(entries[i].id, id) == 0) {
+      k = entries[i].known;
+      break;
+    }
+  }
   xSemaphoreGive(mutex);
-  return p;
+  return k;
 }
 
-PriceFeed::History PriceFeed::btcHistory() {
+PriceFeed::History PriceFeed::history(const char* id) {
   xSemaphoreTake(mutex, portMAX_DELAY);
-  History h = btcHist;
-  xSemaphoreGive(mutex);
-  return h;
-}
-
-PriceFeed::History PriceFeed::moneroHistory() {
-  xSemaphoreTake(mutex, portMAX_DELAY);
-  History h = xmrHist;
+  History h;
+  for (int i = 0; i < entryCount; i++) {
+    if (strcmp(entries[i].id, id) == 0) {
+      h = entries[i].history;
+      break;
+    }
+  }
   xSemaphoreGive(mutex);
   return h;
 }

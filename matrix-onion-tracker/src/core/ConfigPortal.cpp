@@ -3,8 +3,10 @@
 #include <DNSServer.h>
 #include <WebServer.h>
 
+#include "CoinStore.h"
 #include "Net.h"
 #include "NetworkStore.h"
+#include "PriceFeed.h"
 
 namespace {
 
@@ -73,6 +75,31 @@ void handleRoot() {
       "SSID: <input name=ssid maxlength=32 required><br>"
       "Password: <input name=password type=password maxlength=63><br>"
       "<button type=submit>Save &amp; connect</button>"
+      "</form>";
+
+  page += "<h2>Tracked coins</h2><ul>";
+  int cn = CoinStore::count();
+  if (cn == 0) page += "<li>(none)</li>";
+  for (int i = 0; i < cn; i++) {
+    page += "<li>";
+    appendEscaped(page, CoinStore::symbol(i));
+    page += " (";
+    appendEscaped(page, CoinStore::id(i));
+    page += ")";
+    if (!PriceFeed::known(CoinStore::id(i))) page += " <b>not found on CoinGecko?</b>";
+    page += " <form style='display:inline' method=POST action=/coin/delete>"
+            "<input type=hidden name=index value='" +
+            String(i) + "'><button type=submit>Delete</button></form></li>";
+  }
+  page += "</ul>";
+
+  page +=
+      "<h2>Add a coin</h2>"
+      "<form method=POST action=/coin/add>"
+      "CoinGecko id: <input name=id maxlength=23 required> "
+      "(the slug in coingecko.com/en/coins/&lt;id&gt;)<br>"
+      "Symbol: <input name=symbol maxlength=5 placeholder=optional><br>"
+      "<button type=submit>Save</button>"
       "</form></body></html>";
 
   server.send(200, "text/html", page);
@@ -93,12 +120,28 @@ void handleDelete() {
   server.send(303);
 }
 
+void handleCoinAdd() {
+  String id = server.arg("id");
+  id.toLowerCase();
+  CoinStore::add(id.c_str(), server.arg("symbol").c_str());
+  server.sendHeader("Location", "/");
+  server.send(303);
+}
+
+void handleCoinDelete() {
+  CoinStore::remove(server.arg("index").toInt());
+  server.sendHeader("Location", "/");
+  server.send(303);
+}
+
 }  // namespace
 
 void ConfigPortal::begin() {
   server.on("/", HTTP_GET, handleRoot);
   server.on("/add", HTTP_POST, handleAdd);
   server.on("/delete", HTTP_POST, handleDelete);
+  server.on("/coin/add", HTTP_POST, handleCoinAdd);
+  server.on("/coin/delete", HTTP_POST, handleCoinDelete);
   server.onNotFound(handleNotFound);
   server.begin();
 }

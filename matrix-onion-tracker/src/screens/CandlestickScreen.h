@@ -1,25 +1,26 @@
 #pragma once
 
-#include "../core/PriceFeed.h"
+#include <stdio.h>
+
+#include "../core/CoinStore.h"
 #include "../core/Screen.h"
 
-// Shared candlestick-chart draw logic; BtcChart/XmrChart subclass with a
-// default ctor since REGISTER_SCREEN needs one.
+// One instance per CoinStore slot (src/screens/CoinChart.cpp); looks up its
+// coin by slot index each frame, since CoinStore's list can change under it.
 class CandlestickScreen : public Screen {
  public:
-  const char* name() const override { return name_; }
+  explicit CandlestickScreen(int slot) : slot_(slot) {}
+
+  const char* name() const override {
+    snprintf(nameBuf_, sizeof(nameBuf_), "%s Chart", CoinStore::symbol(slot_));
+    return nameBuf_;
+  }
+  bool enabled() const override { return slot_ < CoinStore::count(); }
   void reset() override { scrollX_ = 0; }
   void draw(Display& display) override;
 
- protected:
-  CandlestickScreen(const char* name, const char* symbol, PriceFeed::Price (*price)(),
-                     PriceFeed::History (*history)())
-      : name_(name), symbol_(symbol), price_(price), history_(history) {}
-
  private:
-  const char* name_;
-  const char* symbol_;
-  PriceFeed::Price (*price_)();
-  PriceFeed::History (*history_)();
+  int slot_;
+  mutable char nameBuf_[16];
   int scrollX_ = 0;  // only moves once the header line is too wide to fit
 };

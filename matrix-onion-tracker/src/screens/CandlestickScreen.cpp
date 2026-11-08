@@ -3,6 +3,7 @@
 #include <stdio.h>
 
 #include "../core/Color.h"
+#include "../core/PriceFeed.h"
 
 namespace {
 constexpr int kCandleWidth = PANEL_WIDTH / PriceFeed::kCandleCount;
@@ -12,7 +13,11 @@ constexpr int kChartHeight = PANEL_HEIGHT - kHeaderHeight;
 }  // namespace
 
 void CandlestickScreen::draw(Display& display) {
-  PriceFeed::History hist = history_();
+  if (slot_ >= CoinStore::count()) return;  // coin removed this frame; next frame hides us
+  const char* id = CoinStore::id(slot_);
+  const char* symbol = CoinStore::symbol(slot_);
+
+  PriceFeed::History hist = PriceFeed::history(id);
   if (hist.valid) {
     float lo = hist.candles[0].low;
     float hi = hist.candles[0].high;
@@ -20,7 +25,10 @@ void CandlestickScreen::draw(Display& display) {
       lo = min(lo, c.low);
       hi = max(hi, c.high);
     }
-    float range = (hi - lo) > 0.0001f ? (hi - lo) : 1.0f;
+    // Relative floor, not an absolute one: a sub-cent coin's whole daily
+    // range can be under 0.0001 in absolute terms without being flat.
+    float minRange = (hi > 0 ? hi : 1.0f) * 1e-6f;
+    float range = (hi - lo) > minRange ? (hi - lo) : minRange;
 
     for (int i = 0; i < PriceFeed::kCandleCount; i++) {
       const PriceFeed::Candle& c = hist.candles[i];
@@ -44,16 +52,20 @@ void CandlestickScreen::draw(Display& display) {
   display.setTextSize(1);
   display.setTextWrap(false);
 
-  PriceFeed::Price price = price_();
+  PriceFeed::Price price = PriceFeed::price(id);
   char priceBuf[16] = "...";
   char changeBuf[12] = "";
   if (price.valid) {
-    snprintf(priceBuf, sizeof(priceBuf), "$%.0f", price.usd);
+    // Fixed "$%.0f" reads as $0 for sub-dollar coins (DOGE, SHIB, ...); scale
+    // decimals to the price itself instead.
+    double v = price.usd;
+    const char* fmt = v >= 1000 ? "$%.0f" : v >= 1 ? "$%.2f" : v >= 0.0001 ? "$%.6f" : "$%.8f";
+    snprintf(priceBuf, sizeof(priceBuf), fmt, v);
     snprintf(changeBuf, sizeof(changeBuf), " %+.1f%%", price.change24h);
   }
 
   char line[48];
-  snprintf(line, sizeof(line), "%s %s%s", symbol_, priceBuf, changeBuf);
+  snprintf(line, sizeof(line), "%s %s%s", symbol, priceBuf, changeBuf);
   int16_t boundsX, boundsY;
   uint16_t lineWidth, lineHeight;
   display.getTextBounds(line, 0, 0, &boundsX, &boundsY, &lineWidth, &lineHeight);
@@ -68,7 +80,7 @@ void CandlestickScreen::draw(Display& display) {
 
   display.setCursor(x, FONT_ASCENT);
   display.setTextColor(0xFFFF);
-  display.print(symbol_);
+  display.print(symbol);
   display.print(' ');
 
   display.setTextColor(0xFFE0);  // yellow

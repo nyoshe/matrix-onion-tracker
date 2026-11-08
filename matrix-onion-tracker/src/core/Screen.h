@@ -14,6 +14,10 @@ class Screen {
   // Shown on the serial console when the screen is selected.
   virtual const char* name() const = 0;
 
+  // False hides this screen from Screens::count()/get() (and so from Nav,
+  // the menu and the serial picker too), e.g. an unused coin-chart slot.
+  virtual bool enabled() const { return true; }
+
   // Called each time this screen becomes active; clear any history here.
   virtual void reset() {}
 

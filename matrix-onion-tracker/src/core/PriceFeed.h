@@ -1,9 +1,9 @@
 #pragma once
 
-// Polls CoinGecko's keyless API for BTC/XMR price + OHLC history on a
-// background task (core 0), so the blocking HTTPS calls never stall rendering.
+// Polls CoinGecko for whichever coins CoinStore currently lists, on a
+// background task (core 0) so the blocking HTTPS calls never stall rendering.
 namespace PriceFeed {
-void begin();  // call once from setup()
+void begin();  // call once from setup(), after CoinStore::begin()
 
 struct Price {
   bool valid = false;  // false until the first successful fetch
@@ -11,8 +11,14 @@ struct Price {
   double change24h = 0;  // percent
 };
 
-Price btc();
-Price monero();
+// Looked up by CoinGecko id, not slot index, so removing one coin doesn't
+// relabel another's data until that other coin's own next fetch.
+Price price(const char* id);
+
+// False once a fetch has come back without this id in CoinGecko's response
+// (e.g. a mistyped id). True (unknown-but-not-bad) until the first fetch
+// involving this id completes.
+bool known(const char* id);
 
 // Fixed display width, whatever the raw candle count was. 64 matches the
 // panel's 64px width at 1px/candle; CoinGecko's keyless tier only ever
@@ -29,6 +35,5 @@ struct History {
   Candle candles[kCandleCount];
 };
 
-History btcHistory();
-History moneroHistory();
+History history(const char* id);
 }  // namespace PriceFeed
