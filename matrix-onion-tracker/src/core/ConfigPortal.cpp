@@ -37,15 +37,55 @@ void appendEscaped(String& out, const char* s) {
   }
 }
 
+// Tabs are two radio inputs + a CSS sibling selector -- no JS, so the page
+// stays servable from an ESP32 with no extra requests. For this to work, the
+// radios, the ".tabs" nav and the two ".panel"s must all be direct siblings
+// in that order (general sibling selectors only look forward).
+const char kStyle[] =
+    "*{box-sizing:border-box}"
+    "body{font-family:system-ui,sans-serif;margin:0;padding:1rem;"
+    "background:#111;color:#eee}"
+    "h1{margin:0 0 1rem;font-size:1.3rem}"
+    "h2{font-size:1rem;color:#9cf;margin:1.25rem 0 .5rem}"
+    "input[name=view]{display:none}"
+    ".tabs{display:flex;gap:.25rem;margin-bottom:1rem;border-bottom:1px solid #333}"
+    ".tabs label{padding:.5rem 1rem;cursor:pointer;color:#aaa;"
+    "border-radius:.25rem .25rem 0 0}"
+    "#view-network:checked ~ .tabs label[for=view-network],"
+    "#view-coins:checked ~ .tabs label[for=view-coins]{background:#222;color:#fff}"
+    ".panel{display:none}"
+    "#view-network:checked ~ .panel-network,"
+    "#view-coins:checked ~ .panel-coins{display:block}"
+    ".status{padding:.5rem .75rem;border-radius:.25rem;background:#1a1a1a;margin:0}"
+    "ul{list-style:none;margin:0;padding:0}"
+    "li{display:flex;justify-content:space-between;align-items:center;gap:.5rem;"
+    "padding:.4rem 0;border-bottom:1px solid #222}"
+    "input:not([type]),input[type=password]{background:#1a1a1a;border:1px solid #333;"
+    "color:#eee;padding:.3rem .5rem;border-radius:.2rem}"
+    "button{background:#2a6;border:none;color:#fff;padding:.3rem .7rem;"
+    "border-radius:.2rem;cursor:pointer}"
+    "button:hover{background:#3b7}"
+    "li button{background:#a33}"
+    "li button:hover{background:#c44}"
+    "small{color:#888}";
+
 void handleRoot() {
   String page =
       "<!DOCTYPE html><html><head>"
       "<meta name=viewport content='width=device-width,initial-scale=1'>"
-      "<title>matrix-onion-tracker</title></head><body>"
-      "<h1>matrix-onion-tracker</h1>";
+      "<title>matrix-onion-tracker</title><style>" + String(kStyle) +
+      "</style></head><body>"
+      "<h1>matrix-onion-tracker</h1>"
+      "<input type=radio name=view id=view-network checked>"
+      "<input type=radio name=view id=view-coins>"
+      "<div class=tabs>"
+      "<label for=view-network>Network</label>"
+      "<label for=view-coins>Coins</label>"
+      "</div>";
 
+  page += "<div class='panel panel-network'>";
   if (Net::isConnected()) {
-    page += "<p>Connected to <b>";
+    page += "<p class=status>Connected to <b>";
     appendEscaped(page, Net::connectedSsid());
     page += "</b> (" + String(Net::staIp()) + ")</p>";
   } else {
@@ -53,7 +93,7 @@ void handleRoot() {
     // form below, and a full reload mid-typing would wipe it out. Reload
     // manually to check whether it connected.
     page +=
-        "<p>Not connected to a network yet -- trying any saved networks. "
+        "<p class=status>Not connected to a network yet -- trying any saved networks. "
         "Add one below, or reload this page to check status.</p>";
   }
 
@@ -75,8 +115,10 @@ void handleRoot() {
       "SSID: <input name=ssid maxlength=32 required><br>"
       "Password: <input name=password type=password maxlength=63><br>"
       "<button type=submit>Save &amp; connect</button>"
-      "</form>";
+      "</form>"
+      "</div>";
 
+  page += "<div class='panel panel-coins'>";
   page += "<h2>Tracked coins</h2><ul>";
   int cn = CoinStore::count();
   if (cn == 0) page += "<li>(none)</li>";
@@ -100,7 +142,9 @@ void handleRoot() {
       "(the slug in coingecko.com/en/coins/&lt;id&gt;)<br>"
       "Symbol: <input name=symbol maxlength=5 placeholder=optional><br>"
       "<button type=submit>Save</button>"
-      "</form></body></html>";
+      "</form>"
+      "</div>"
+      "</body></html>";
 
   server.send(200, "text/html", page);
 }
