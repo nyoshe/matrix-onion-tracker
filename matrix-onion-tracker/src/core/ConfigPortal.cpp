@@ -45,6 +45,25 @@ void appendEscaped(String& out, const char* s) {
   }
 }
 
+// Percent-encodes for use in a query string -- SSIDs can contain spaces and
+// other characters a raw URL can't. WebServer's arg() decodes this back on
+// the way in.
+void appendUrlEncoded(String& out, const char* s) {
+  const char* hex = "0123456789ABCDEF";
+  for (const char* p = s; *p; p++) {
+    unsigned char c = (unsigned char)*p;
+    bool safe = (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '-' ||
+                c == '_' || c == '.' || c == '~';
+    if (safe) {
+      out += (char)c;
+    } else {
+      out += '%';
+      out += hex[c >> 4];
+      out += hex[c & 0xF];
+    }
+  }
+}
+
 // Tabs are two radio inputs + a CSS sibling selector -- no JS, so the page
 // stays servable from an ESP32 with no extra requests. For this to work, the
 // radios, the ".tabs" nav and the two ".panel"s must all be direct siblings
@@ -68,6 +87,9 @@ const char kStyle[] =
     "ul{list-style:none;margin:0;padding:0}"
     "li{display:flex;justify-content:space-between;align-items:center;gap:.5rem;"
     "padding:.4rem 0;border-bottom:1px solid #222}"
+    ".net-pick{display:flex;flex:1;justify-content:space-between;align-items:center;"
+    "gap:.5rem;color:inherit;text-decoration:none}"
+    ".net-pick:hover{color:#fff}"
     "input:not([type]),input[type=password]{background:#1a1a1a;border:1px solid #333;"
     "color:#eee;padding:.3rem .5rem;border-radius:.2rem}"
     "button{background:#2a6;border:none;color:#fff;padding:.3rem .7rem;"
@@ -78,6 +100,10 @@ const char kStyle[] =
     "small{color:#888}";
 
 void handleRoot() {
+  // Set when the user clicked a scanned network below -- pre-fills the add
+  // form's SSID so they only have to type the password.
+  String selectedSsid = server.arg("ssid");
+
   String page =
       "<!DOCTYPE html><html><head>"
       "<meta name=viewport content='width=device-width,initial-scale=1'>"
@@ -115,11 +141,13 @@ void handleRoot() {
     for (int i = 0; i < sn; i++) {
       const char* ssid = Net::scanSsid(i);
       int32_t rssi = Net::scanRssi(i);
-      page += "<li><span>";
+      page += "<li><a class=net-pick href='/?ssid=";
+      appendUrlEncoded(page, ssid);
+      page += "#add-network'><span>";
       appendEscaped(page, ssid);
       if (Net::isConnected() && strcmp(ssid, Net::connectedSsid()) == 0) page += " <small>(connected)</small>";
       if (Net::scanIsOpen(i)) page += " <small>(open)</small>";
-      page += "</span><small>" + String(rssi) + " dBm &middot; " + signalQuality(rssi) + "</small></li>";
+      page += "</span><small>" + String(rssi) + " dBm &middot; " + signalQuality(rssi) + "</small></a></li>";
     }
   }
   page += "</ul>";
@@ -136,14 +164,17 @@ void handleRoot() {
   }
   page += "</ul>";
 
-  page +=
-      "<h2>Add a network</h2>"
-      "<form method=POST action=/add>"
-      "SSID: <input name=ssid maxlength=32 required><br>"
-      "Password: <input name=password type=password maxlength=63><br>"
-      "<button type=submit>Save &amp; connect</button>"
-      "</form>"
-      "</div>";
+  page += "<h2 id=add-network>Add a network</h2>"
+          "<form method=POST action=/add>"
+          "SSID: <input name=ssid maxlength=32 required value=\"";
+  appendEscaped(page, selectedSsid.c_str());
+  page += "\"><br>"
+          "Password: <input name=password type=password maxlength=63";
+  if (selectedSsid.length() > 0) page += " autofocus";
+  page += "><br>"
+          "<button type=submit>Save &amp; connect</button>"
+          "</form>"
+          "</div>";
 
   page += "<div class='panel panel-coins'>";
   page += "<h2>Tracked coins</h2><ul>";
