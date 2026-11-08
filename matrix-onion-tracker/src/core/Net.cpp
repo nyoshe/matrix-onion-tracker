@@ -21,6 +21,18 @@ uint32_t attemptStartMs = 0;
 char connectedSsidBuf[33] = "";
 char staIpBuf[16] = "";
 
+constexpr int kMaxScanResults = 12;
+constexpr uint32_t kScanIntervalMs = 15000;  // how often to refresh once settled
+
+struct ScanEntry {
+  char ssid[33];
+  int32_t rssi;
+  bool open;
+};
+ScanEntry scanResults[kMaxScanResults];
+int scanResultCount = -1;  // -1: no scan has completed yet
+uint32_t nextScanMs = 0;   // 0 so the first scan fires as soon as polling starts
+
 // softAP() below is called with no explicit IP config, which defaults to
 // this. Shared with configUrl() so the two can't drift apart.
 constexpr const char* kApIp = "192.168.4.1";
@@ -48,6 +60,40 @@ void startAttempt(int index) {
   mode = Mode::kTrying;
 }
 
+// scanNetworks() calls WiFi.enableSTA(true) internally rather than replacing
+// the current mode, so running this while the AP is up doesn't drop it.
+// Only called once the connect sequence has settled (see Net::poll()), so a
+// scan never competes with an in-progress WiFi.begin() attempt.
+void pollScan() {
+  int16_t n = WiFi.scanComplete();
+  if (n >= 0) {
+    int count = n < kMaxScanResults ? n : kMaxScanResults;
+    for (int i = 0; i < count; i++) {
+      copyTruncated(scanResults[i].ssid, sizeof(scanResults[i].ssid), WiFi.SSID(i).c_str());
+      scanResults[i].rssi = WiFi.RSSI(i);
+      scanResults[i].open = WiFi.encryptionType(i) == WIFI_AUTH_OPEN;
+    }
+    WiFi.scanDelete();
+
+    // Strongest signal first, so the list reads top-down by usefulness.
+    for (int i = 1; i < count; i++) {
+      ScanEntry key = scanResults[i];
+      int j = i - 1;
+      while (j >= 0 && scanResults[j].rssi < key.rssi) {
+        scanResults[j + 1] = scanResults[j];
+        j--;
+      }
+      scanResults[j + 1] = key;
+    }
+
+    scanResultCount = count;
+    nextScanMs = millis() + kScanIntervalMs;
+  } else if (n == WIFI_SCAN_FAILED && millis() >= nextScanMs) {
+    WiFi.scanNetworks(true);  // async; a later pollScan() picks up the result
+  }
+  // n == WIFI_SCAN_RUNNING: still working, nothing to do yet.
+}
+
 }  // namespace
 
 void Net::begin() {
@@ -67,7 +113,10 @@ void Net::tryIndex(int i) {
 }
 
 void Net::poll() {
-  if (mode != Mode::kTrying) return;
+  if (mode != Mode::kTrying) {
+    pollScan();
+    return;
+  }
 
   if (WiFi.status() == WL_CONNECTED) {
     copyTruncated(connectedSsidBuf, sizeof(connectedSsidBuf), NetworkStore::ssid(currentIndex));
@@ -96,6 +145,20 @@ const char* Net::connectedSsid() { return connectedSsidBuf; }
 const char* Net::staIp() { return staIpBuf; }
 
 bool Net::isApActive() { return apUp; }
+
+int Net::scanCount() { return scanResultCount; }
+
+const char* Net::scanSsid(int i) {
+  return (i >= 0 && i < scanResultCount) ? scanResults[i].ssid : "";
+}
+
+int32_t Net::scanRssi(int i) {
+  return (i >= 0 && i < scanResultCount) ? scanResults[i].rssi : 0;
+}
+
+bool Net::scanIsOpen(int i) {
+  return (i >= 0 && i < scanResultCount) ? scanResults[i].open : false;
+}
 
 const char* Net::configUrl() {
   static char buf[24];

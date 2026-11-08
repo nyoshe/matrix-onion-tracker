@@ -25,6 +25,14 @@ void handleNotFound() {
   server.send(302, "text/plain", "");
 }
 
+// Thresholds roughly match what phone WiFi pickers treat as 4/3/2/1 bars.
+const char* signalQuality(int32_t rssi) {
+  if (rssi >= -55) return "Excellent";
+  if (rssi >= -67) return "Good";
+  if (rssi >= -75) return "Fair";
+  return "Weak";
+}
+
 void appendEscaped(String& out, const char* s) {
   for (const char* p = s; *p; p++) {
     switch (*p) {
@@ -96,6 +104,25 @@ void handleRoot() {
         "<p class=status>Not connected to a network yet -- trying any saved networks. "
         "Add one below, or reload this page to check status.</p>";
   }
+
+  page += "<h2>Available networks</h2><ul>";
+  int sn = Net::scanCount();
+  if (sn < 0) {
+    page += "<li>Scanning&hellip;</li>";
+  } else if (sn == 0) {
+    page += "<li>(none found)</li>";
+  } else {
+    for (int i = 0; i < sn; i++) {
+      const char* ssid = Net::scanSsid(i);
+      int32_t rssi = Net::scanRssi(i);
+      page += "<li><span>";
+      appendEscaped(page, ssid);
+      if (Net::isConnected() && strcmp(ssid, Net::connectedSsid()) == 0) page += " <small>(connected)</small>";
+      if (Net::scanIsOpen(i)) page += " <small>(open)</small>";
+      page += "</span><small>" + String(rssi) + " dBm &middot; " + signalQuality(rssi) + "</small></li>";
+    }
+  }
+  page += "</ul>";
 
   page += "<h2>Saved networks</h2><ul>";
   int n = NetworkStore::count();
