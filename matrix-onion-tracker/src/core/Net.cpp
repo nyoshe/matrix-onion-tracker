@@ -9,6 +9,7 @@
 #include "../config.h"
 #include "Color.h"
 #include "NetworkStore.h"
+#include "QrEncode.h"
 
 namespace {
 
@@ -35,6 +36,67 @@ char apPasswordBuf[11] = "";
 void fillRandom(char* dst, int len, const char* charset, int charsetLen) {
   for (int i = 0; i < len; i++) dst[i] = charset[esp_random() % charsetLen];
   dst[len] = '\0';
+}
+
+// QR for the default (menu-closed) AP-mode screen: a WiFi-join payload, so a
+// phone camera can join the setup AP directly instead of needing to type the
+// random password. Kept entirely separate from NetworkView's own copy of
+// this same idea (used by the menu's "Network" item) -- that screen must
+// stay untouched, so nothing here is shared with it.
+//
+// The semicolons required by "WIFI:T:WPA;S:...;P:...;;" aren't in the QR
+// alphanumeric charset, so the encoder falls back to byte mode; version 3
+// (55 bytes capacity at ECC_LOW) comfortably covers this payload's ~41-byte
+// requirement, where version 1/2 wouldn't.
+constexpr int kApQrVersion = 3;
+constexpr int kApQrSize = kApQrVersion * 4 + 17;  // 29x29 modules
+constexpr int kApQrMargin = 1;                    // keeps the backdrop within the 32px panel height
+constexpr int kApQrBufSize = (kApQrSize * kApQrSize + 7) / 8;
+
+QRCode apQr;
+uint8_t apQrBuf[kApQrBufSize];
+bool apQrGood = false;
+char lastApPayload[48] = "";
+
+const char* const kApLines[] = {"Scan to", "setup", "network"};
+constexpr int kApLineCount = 3;
+constexpr int kApLinePitch = 8;
+
+// TomThumb is fixed-width (FONT_ADVANCE px/char), so centering is plain
+// arithmetic.
+void drawApCenteredLines(Display& display, int areaX, int areaWidth, int areaHeight) {
+  int blockHeight = kApLineCount * kApLinePitch;
+  int y0 = (areaHeight - blockHeight) / 2;
+  display.setTextColor(hueColor(0.5f));
+  for (int i = 0; i < kApLineCount; i++) {
+    int w = (int)strlen(kApLines[i]) * FONT_ADVANCE;
+    int x = areaX + (areaWidth - w) / 2;
+    display.setCursor(x, y0 + i * kApLinePitch + FONT_ASCENT);
+    display.print(kApLines[i]);
+  }
+}
+
+void drawApQr(Display& display) {
+  char payload[48];
+  snprintf(payload, sizeof(payload), "WIFI:T:WPA;S:%s;P:%s;;", apSsidBuf, apPasswordBuf);
+  if (strcmp(payload, lastApPayload) != 0) {
+    strncpy(lastApPayload, payload, sizeof(lastApPayload) - 1);
+    lastApPayload[sizeof(lastApPayload) - 1] = '\0';
+    apQrGood = qrcode_initText(&apQr, apQrBuf, kApQrVersion, ECC_LOW, payload) == 0;
+  }
+
+  int backdrop = kApQrSize + 2 * kApQrMargin;
+  display.fillRect(0, 0, backdrop, backdrop, 0xFFFF);
+  if (apQrGood) {
+    for (int y = 0; y < kApQrSize; y++) {
+      for (int x = 0; x < kApQrSize; x++) {
+        if (qrcode_getModule(&apQr, x, y)) display.drawPixel(kApQrMargin + x, kApQrMargin + y, 0x0000);
+      }
+    }
+  }
+
+  int textX = backdrop + 1;
+  drawApCenteredLines(display, textX, PANEL_WIDTH - textX, PANEL_HEIGHT);
 }
 
 constexpr int kMaxScanResults = 12;
@@ -196,14 +258,7 @@ void Net::draw(Display& display) {
   display.setTextWrap(false);
 
   if (apUp) {
-    display.setTextColor(0xFFFF);
-    display.setCursor(1, 2 + FONT_ASCENT);
-    display.print("Connect to:");
-    display.setCursor(1, 12 + FONT_ASCENT);
-    display.print(apSsidBuf);
-    display.setTextColor(hueColor(0.5f));  // cyan: the actionable step
-    display.setCursor(1, 22 + FONT_ASCENT);
-    display.print(kApIp);
+    drawApQr(display);
   } else {
     display.setTextColor(0xFFFF);
     display.setCursor(1, 8 + FONT_ASCENT);
