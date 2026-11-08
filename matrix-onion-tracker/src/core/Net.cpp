@@ -2,6 +2,7 @@
 
 #include <Arduino.h>
 #include <WiFi.h>
+#include <esp_random.h>
 #include <stdio.h>
 #include <string.h>
 
@@ -20,6 +21,21 @@ uint32_t attemptStartMs = 0;
 
 char connectedSsidBuf[33] = "";
 char staIpBuf[16] = "";
+
+// Setup-AP credentials, regenerated each time startAp() runs (once per
+// boot). Random rather than fixed so joining requires scanning the QR
+// NetworkView draws, rather than anyone in range joining an open network
+// by name alone.
+char apSsidBuf[16] = "";
+char apPasswordBuf[11] = "";
+
+// Fills dst[0..len) with random characters from charset, then NUL-terminates
+// at dst[len]. esp_random() is the hardware TRNG -- appropriate here since
+// this is a security-relevant secret, unlike the software-seeded random().
+void fillRandom(char* dst, int len, const char* charset, int charsetLen) {
+  for (int i = 0; i < len; i++) dst[i] = charset[esp_random() % charsetLen];
+  dst[len] = '\0';
+}
 
 constexpr int kMaxScanResults = 12;
 constexpr uint32_t kScanIntervalMs = 15000;  // how often to refresh once settled
@@ -43,11 +59,16 @@ void copyTruncated(char* dst, size_t dstLen, const char* src) {
 }
 
 void startAp() {
+  strcpy(apSsidBuf, "Matrix-");
+  fillRandom(apSsidBuf + 7, 4, "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ", 36);
+  fillRandom(apPasswordBuf, 10,
+             "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz", 62);
+
   WiFi.mode(WIFI_AP);
-  WiFi.softAP(WIFI_AP_SSID);  // no password: open network
+  WiFi.softAP(apSsidBuf, apPasswordBuf);
   apUp = true;
   mode = Mode::kApOnly;
-  Serial.printf("WiFi: no network joined, AP '%s' up at %s\n", WIFI_AP_SSID,
+  Serial.printf("WiFi: no network joined, AP '%s' up at %s\n", apSsidBuf,
                 WiFi.softAPIP().toString().c_str());
 }
 
@@ -146,6 +167,10 @@ const char* Net::staIp() { return staIpBuf; }
 
 bool Net::isApActive() { return apUp; }
 
+const char* Net::apSsid() { return apSsidBuf; }
+
+const char* Net::apPassword() { return apPasswordBuf; }
+
 int Net::scanCount() { return scanResultCount; }
 
 const char* Net::scanSsid(int i) {
@@ -175,7 +200,7 @@ void Net::draw(Display& display) {
     display.setCursor(1, 2 + FONT_ASCENT);
     display.print("Connect to:");
     display.setCursor(1, 12 + FONT_ASCENT);
-    display.print(WIFI_AP_SSID);
+    display.print(apSsidBuf);
     display.setTextColor(hueColor(0.5f));  // cyan: the actionable step
     display.setCursor(1, 22 + FONT_ASCENT);
     display.print(kApIp);

@@ -16,6 +16,11 @@ const char* staIp();          // valid when isConnected()
 
 bool isApActive();
 
+// Credentials for the setup AP, generated fresh each time it's started
+// (see startAp() in Net.cpp). Valid once isApActive().
+const char* apSsid();
+const char* apPassword();
+
 // Background WiFi scan, refreshed periodically once the connect sequence
 // has settled (not while actively trying a saved network, so scanning
 // doesn't interfere with that attempt). Results are sorted strongest-first.

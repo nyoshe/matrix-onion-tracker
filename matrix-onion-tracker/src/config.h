@@ -62,11 +62,6 @@ constexpr uint8_t MENU_BRIGHTNESS_STEP = 8;  // brightness change per detent
 constexpr uint32_t WIFI_PER_NETWORK_TIMEOUT_MS = 8000;  // before trying the next saved network
 constexpr int WIFI_MAX_SAVED_NETWORKS = 8;
 
-// Access point started when no saved network connects; the config portal
-// (src/core/ConfigPortal.*) is reachable there at 192.168.4.1. Open (no
-// password) so it's easy to get to for setup.
-constexpr const char* WIFI_AP_SSID = "config";
-
 // ---- Tracked coins ------------------------------------------------------------
 // Persisted via CoinStore, added/removed from the config portal. Fixed cap so
 // screens/registry/NVS storage can all use plain static arrays.

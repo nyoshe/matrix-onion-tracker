@@ -9,33 +9,46 @@
 #include "QrEncode.h"
 
 namespace {
-// qrcode_getBufferSize() isn't a constant expression, so this repeats its
-// formula (packed 1 bit/module) to size a static buffer for the fixed
-// version used below.
-constexpr int kQrVersion = 1;
-constexpr int kQrSize = kQrVersion * 4 + 17;  // 21x21 modules
-constexpr int kQrBufSize = (kQrSize * kQrSize + 7) / 8;
-constexpr int kQrMargin = 2;  // quiet zone, so a phone camera can find the edges
-constexpr int kBackdrop = kQrSize + 2 * kQrMargin;
-constexpr int kTextX = kQrMargin + kQrSize + kQrMargin + 1;
+// Two QR codes are ever shown here: the connected-state portal URL (fits
+// comfortably in version 1's alphanumeric capacity) and the AP-state
+// WiFi-join payload (forced into byte mode by the required semicolons in
+// "WIFI:T:WPA;S:...;P:...;;", so it needs more raw capacity than its
+// character count alone suggests -- version 3 gives 55 bytes at ECC_LOW
+// against this payload's ~41-byte requirement). qrBuf is sized for the
+// larger of the two; margin shrinks for the AP code so its bigger backdrop
+// still fits the panel's 32px height.
+constexpr int kQrVersionUrl = 1;
+constexpr int kQrMarginUrl = 2;
+constexpr int kQrVersionAp = 3;
+constexpr int kQrMarginAp = 1;
+constexpr int kQrSizeMax = kQrVersionAp * 4 + 17;  // 29x29, the larger case
+constexpr int kQrBufSize = (kQrSizeMax * kQrSizeMax + 7) / 8;
 
 QRCode qr;
 uint8_t qrBuf[kQrBufSize];
 bool qrGood = false;
-char lastUrl[24] = "";
+int qrSize = 0;     // modules per side of whatever's currently encoded
+int qrMargin = 0;   // quiet zone used for the currently-encoded code
+
+char lastPayload[48] = "";
+bool lastWasAp = false;  // forces a regen on switching case, even same string
 int urlScrollX = PANEL_WIDTH;
 int netScrollX = PANEL_WIDTH;
 
-// Same marquee as CandlestickScreen's header line, anchored at kTextX
-// instead of the panel's left edge when it fits.
-void drawScrollLine(Display& display, const char* text, int y, int& scrollX, uint16_t color) {
+const char* const kApLines[] = {"Scan to", "setup", "network"};
+constexpr int kApLineCount = 3;
+constexpr int kApLinePitch = 8;
+
+// Same marquee as CandlestickScreen's header line, anchored at textX instead
+// of the panel's left edge when it fits.
+void drawScrollLine(Display& display, const char* text, int y, int& scrollX, int textX, uint16_t color) {
   int16_t boundsX, boundsY;
   uint16_t lineWidth, lineHeight;
   display.getTextBounds(text, 0, 0, &boundsX, &boundsY, &lineWidth, &lineHeight);
 
   int x;
-  if ((int)lineWidth <= PANEL_WIDTH - kTextX) {
-    x = kTextX;
+  if ((int)lineWidth <= PANEL_WIDTH - textX) {
+    x = textX;
   } else {
     x = scrollX;
     scrollX = (scrollX <= -(int)lineWidth) ? PANEL_WIDTH : scrollX - 1;
@@ -44,6 +57,35 @@ void drawScrollLine(Display& display, const char* text, int y, int& scrollX, uin
   display.setCursor(x, y + FONT_ASCENT);
   display.setTextColor(color);
   display.print(text);
+}
+
+// TomThumb is fixed-width (FONT_ADVANCE px/char), so centering is plain
+// arithmetic -- no need for a per-string getTextBounds() measurement.
+void drawCenteredLines(Display& display, const char* const* lines, int count, int areaX, int areaWidth,
+                        int areaHeight, uint16_t color) {
+  int blockHeight = count * kApLinePitch;
+  int y0 = (areaHeight - blockHeight) / 2;
+  display.setTextColor(color);
+  for (int i = 0; i < count; i++) {
+    int w = (int)strlen(lines[i]) * FONT_ADVANCE;
+    int x = areaX + (areaWidth - w) / 2;
+    display.setCursor(x, y0 + i * kApLinePitch + FONT_ASCENT);
+    display.print(lines[i]);
+  }
+}
+
+void drawQr(Display& display) {
+  int backdrop = qrSize + 2 * qrMargin;
+  // Drawn first here (unlike the connected case) since there's no scrolling
+  // text to worry about overdrawing -- the centered lines are placed outside
+  // the backdrop's width entirely.
+  display.fillRect(0, 0, backdrop, backdrop, 0xFFFF);
+  if (!qrGood) return;
+  for (int y = 0; y < qrSize; y++) {
+    for (int x = 0; x < qrSize; x++) {
+      if (qrcode_getModule(&qr, x, y)) display.drawPixel(qrMargin + x, qrMargin + y, 0x0000);
+    }
+  }
 }
 }  // namespace
 
@@ -65,33 +107,44 @@ void NetworkView::draw(Display& display) {
     return;
   }
 
+  if (Net::isApActive() && !Net::isConnected()) {
+    char payload[48];
+    snprintf(payload, sizeof(payload), "WIFI:T:WPA;S:%s;P:%s;;", Net::apSsid(), Net::apPassword());
+    if (!lastWasAp || strcmp(payload, lastPayload) != 0) {
+      strncpy(lastPayload, payload, sizeof(lastPayload) - 1);
+      lastPayload[sizeof(lastPayload) - 1] = '\0';
+      lastWasAp = true;
+      qrGood = qrcode_initText(&qr, qrBuf, kQrVersionAp, ECC_LOW, payload) == 0;
+      qrSize = kQrVersionAp * 4 + 17;
+      qrMargin = kQrMarginAp;
+    }
+
+    drawQr(display);
+    int textX = qrMargin + qrSize + qrMargin + 1;
+    drawCenteredLines(display, kApLines, kApLineCount, textX, PANEL_WIDTH - textX, PANEL_HEIGHT, hueColor(0.5f));
+    return;
+  }
+
   const char* url = Net::configUrl();
-  if (strcmp(url, lastUrl) != 0) {
-    strncpy(lastUrl, url, sizeof(lastUrl) - 1);
-    lastUrl[sizeof(lastUrl) - 1] = '\0';
-    qrGood = qrcode_initText(&qr, qrBuf, kQrVersion, ECC_LOW, url) == 0;
+  if (lastWasAp || strcmp(url, lastPayload) != 0) {
+    strncpy(lastPayload, url, sizeof(lastPayload) - 1);
+    lastPayload[sizeof(lastPayload) - 1] = '\0';
+    lastWasAp = false;
+    qrGood = qrcode_initText(&qr, qrBuf, kQrVersionUrl, ECC_LOW, url) == 0;
+    qrSize = kQrVersionUrl * 4 + 17;
+    qrMargin = kQrMarginUrl;
   }
 
   char netLine[40];
-  if (Net::isConnected()) {
-    snprintf(netLine, sizeof(netLine), "%s", Net::connectedSsid());
-  } else {
-    snprintf(netLine, sizeof(netLine), "AP: %s", WIFI_AP_SSID);
-  }
+  snprintf(netLine, sizeof(netLine), "%s", Net::connectedSsid());
 
-  drawScrollLine(display, url, 2, urlScrollX, 0xFFFF);
-  drawScrollLine(display, netLine, 14, netScrollX, hueColor(0.5f));
+  int textX = qrMargin + qrSize + qrMargin + 1;
+  drawScrollLine(display, url, 2, urlScrollX, textX, 0xFFFF);
+  drawScrollLine(display, netLine, 14, netScrollX, textX, hueColor(0.5f));
 
-  // Drawn last, over any scrolling text that passed behind it this frame,
-  // so the code itself always stays intact and scannable. getModule()
-  // returns true for a DARK module, so the quiet zone/background is the
-  // lit fill and true modules punch out unlit pixels, not the reverse.
-  display.fillRect(0, 0, kBackdrop, kBackdrop, 0xFFFF);
-  if (qrGood) {
-    for (int y = 0; y < kQrSize; y++) {
-      for (int x = 0; x < kQrSize; x++) {
-        if (qrcode_getModule(&qr, x, y)) display.drawPixel(kQrMargin + x, kQrMargin + y, 0x0000);
-      }
-    }
-  }
+  // Drawn last, over any scrolling text that passed behind it this frame, so
+  // the code itself always stays intact and scannable. getModule() returns
+  // true for a DARK module, so the quiet zone/background is the lit fill and
+  // true modules punch out unlit pixels, not the reverse.
+  drawQr(display);
 }
